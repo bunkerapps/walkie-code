@@ -6,6 +6,7 @@ Walkie-talkie para hablarle a Claude Code desde el iPhone. Mantenés el botón, 
 iPhone (miniweb) ──audio──▶ server.js ──▶ whisper-server (voz a texto, local)
                                       └──▶ iTerm2: escribe y envía con Enter
 Claude Code ──hook Stop / PermissionRequest──▶ server.js ──say──▶ audio ──SSE──▶ iPhone
+Claude Code ──hook UserPromptSubmit──▶ server.js (anota cuándo empezó cada turno, para los avisos)
 ```
 
 Nada sale de tu red salvo lo que Claude Code ya manda. La transcripción corre en la Mac con Whisper.
@@ -20,7 +21,7 @@ Nada sale de tu red salvo lo que Claude Code ya manda. La transcripción corre e
 
 ## Puesta en marcha
 
-1. `node scripts/install-hooks.js` registra los hooks en `~/.claude/settings.json`, sin tocar los que ya tenés. Se sacan con `--remove`.
+1. `node scripts/install-hooks.js` registra los hooks (`Stop`, `PermissionRequest` y `UserPromptSubmit`) en `~/.claude/settings.json`, sin tocar los que ya tenés. Se puede correr de nuevo después de actualizar. Se sacan con `--remove`.
 2. `scripts/service.sh install` lo deja corriendo como servicio de launchd: arranca solo al iniciar sesión y se reinicia si se cae. También sirven `restart`, `status`, `logs` y `uninstall`. Para desarrollo alcanza con `npm start`.
 3. Una sola vez: `tailscale up` y después `tailscale serve --bg 8787`. En la consola de Tailscale tienen que estar activados MagicDNS y los certificados HTTPS.
 4. En el iPhone abrí `https://<tu-mac>.<tu-tailnet>.ts.net/?t=<token>` (el token está en `~/.supervoz/config.json`) y usá "Agregar a pantalla de inicio".
@@ -37,15 +38,16 @@ La primera vez macOS pide permiso de Automatización para que `node` controle iT
 - Tocando un mensaje de la pantalla se abre completo, con scroll. Mientras Claude piensa, la pantalla muestra el mismo spinner que Claude Code.
 - La respuesta suena **solo en el dispositivo que habló**; si la web está abierta en otro lado, ahí solo se ve el texto. Si le hablaste a un canal y cambiaste a otro, la respuesta se anuncia con "Desde <proyecto>".
 - Si Claude pide un permiso, se escucha el aviso. Respondiendo "sí" o "dale" se aprueba, y con "no" se cancela.
+- **Avisos de otros canales**: si una sesión a la que no le hablaste desde el teléfono (por ejemplo, algo que lanzaste desde la Mac antes de irte) termina un turno que duró más de `notifyAfterSeconds` (60 por defecto), todos los teléfonos conectados suenan con un aviso corto ("Terminó superprecio") y el texto completo queda en la pantalla, para tocarlo y leerlo. Si Claude pide permiso en cualquier canal se avisa siempre ("superprecio necesita permiso para usar Bash"); sintonizando ese canal, "sí" o "no" lo contestan. Las respuestas cortas no avisan. El aviso no interrumpe: si estás transmitiendo o escuchando otra cosa, espera; los que llegan al reconectar después de 2 minutos solo se muestran. Se prenden, apagan y ajustan (de 30 s a 30 min) en el panel de VOZ.
 - Tocando el **parlante** (VOZ) se elige la voz de las respuestas entre las voces en español instaladas en la Mac, y su velocidad. Se guarda en la configuración.
 - La **perilla** de arriba recarga la app.
 - **REPETIR** vuelve a leer la última respuesta, **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
 - La pantalla queda encendida mientras la app está abierta. Si el teléfono se bloquea, al volver se recupera lo que llegó mientras tanto.
 
-Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`) y velocidad (`rate`).
+Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`) y velocidad (`rate`), avisos de otros canales (`notices`, `notifyAfterSeconds`).
 
 ## Desarrollo
 
-`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) y del explorador de carpetas (que no se pueda salir de la raíz).
+`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) del explorador de carpetas (que no se pueda salir de la raíz) y de cuándo avisar desde otros canales (`lib/notices.js`).
 
 Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar, `release.m4a` al soltar, `rx.m4a` cuando llega una respuesta.

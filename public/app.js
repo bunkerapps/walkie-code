@@ -62,6 +62,7 @@ function setSpinner(on) {
 
 function setState(next) {
   if (next !== state) setSpinner(next === 'waiting');
+  if (next !== state && (next === 'idle' || next === 'waiting')) setTimeout(flushNotices, 600);
   state = next;
   radio.dataset.state = next;
   $('state-label').textContent = STATE_LABELS[next] || next.toUpperCase();
@@ -265,6 +266,7 @@ const sfx = {
   click: () => beep([[2200, 0.02]], 0.06),
   incoming: () => playSample('rx') || squelch(),
   error: () => beep([[320, 0.14], [220, 0.2]]),
+  notice: () => beep([[988, 0.09], [1319, 0.18]], 0.08),
 };
 
 // En iOS, con el micrófono abierto el audio sale por el auricular y no por el parlante.
@@ -284,16 +286,22 @@ player.addEventListener('playing', () => player.dataset.rx && setState('rx'));
 for (const type of ['ended', 'pause', 'error']) {
   player.addEventListener(type, () => state === 'rx' && setState('idle'));
 }
+player.addEventListener('ended', () => setTimeout(flushNotices, 400));
 
-function play(src, { squelch: withSquelch = true, rx = true } = {}) {
+// Hasta cuándo hay un audio a punto de arrancar (el squelch va antes de la voz).
+let playStartsAt = 0;
+
+// `quiet`: si Safari no deja reproducir, no se pide tocar REPETIR (los avisos ya quedan en pantalla).
+function play(src, { squelch: withSquelch = true, rx = true, delay = withSquelch ? 280 : 0, quiet = false } = {}) {
   player.pause();
   setAudioSession('playback');
   if (withSquelch) sfx.incoming();
   player.dataset.rx = rx ? '1' : '';
+  playStartsAt = Date.now() + delay;
   setTimeout(() => {
     player.src = `${src}?t=${encodeURIComponent(token)}`;
-    player.play().catch(() => log('', 'TOCÁ REPETIR PARA ESCUCHAR', { muted: true }));
-  }, withSquelch ? 280 : 0);
+    player.play().catch(() => quiet || log('', 'TOCÁ REPETIR PARA ESCUCHAR', { muted: true }));
+  }, delay);
 }
 
 function stopPlayback() {
@@ -681,6 +689,7 @@ async function openVoices() {
     const res = await api('/api/voices');
     voiceState = await res.json();
     renderVoices();
+    renderNotices();
   } catch {
     li.textContent = 'SIN CONEXIÓN CON LA MAC';
   }
@@ -705,6 +714,52 @@ async function chooseVoice(change) {
   }
 }
 
+// Avisos de los otros canales: se prenden o apagan y se elige desde cuánto dura un turno para avisar.
+const NOTICE_STEPS = [30, 60, 120, 300, 600, 1200, 1800];
+
+const shortDuration = (s) => (s < 60 ? `${s} S` : `${Math.round(s / 60)} MIN`);
+
+function renderNotices() {
+  const settings = voiceState?.notices;
+  $('notices').hidden = !settings;
+  if (!settings) return;
+  $('notices-toggle').textContent = settings.enabled ? 'SÍ' : 'NO';
+  $('notices-toggle').setAttribute('aria-pressed', String(settings.enabled));
+  $('notices-label').textContent = `SI TARDA +${shortDuration(settings.afterSeconds)}`;
+  $('notices-delay').classList.toggle('off', !settings.enabled);
+}
+
+async function saveNotices(change) {
+  unlockAudio();
+  sfx.click();
+  try {
+    const res = await api('/api/notices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(change),
+    });
+    const body = await res.json();
+    if (!res.ok) return fail((body.error || 'NO SE PUDO GUARDAR').toUpperCase());
+    voiceState.notices = body;
+    renderNotices();
+  } catch {
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+}
+
+function stepNotices(direction) {
+  const current = voiceState?.notices?.afterSeconds;
+  if (!current) return;
+  const next = direction > 0
+    ? NOTICE_STEPS.find((s) => s > current) ?? NOTICE_STEPS.at(-1)
+    : NOTICE_STEPS.findLast((s) => s < current) ?? NOTICE_STEPS[0];
+  if (next !== current) saveNotices({ afterSeconds: next });
+}
+
+$('notices-toggle').addEventListener('click', () => voiceState?.notices && saveNotices({ enabled: !voiceState.notices.enabled }));
+$('notices-down').addEventListener('click', () => stepNotices(-1));
+$('notices-up').addEventListener('click', () => stepNotices(1));
+
 $('voice-open').addEventListener('click', openVoices);
 $('voices-close').addEventListener('click', () => {
   voicesPanel.hidden = true;
@@ -728,12 +783,44 @@ function onIncoming(label) {
   };
 }
 
+// ---------- Avisos de otros canales ----------
+//
+// Un canal al que no se le habló desde acá terminó una tarea larga o pide permiso.
+// Llega a todos los teléfonos: queda en la pantalla y suena un aviso corto,
+// sin pisar lo que se está transmitiendo ni lo que se está escuchando.
+
+const NOTICE_FRESH_MS = 2 * 60 * 1000;
+const noticeQueue = [];
+
+const audioBusy = () =>
+  ['arming', 'tx', 'processing', 'rx'].includes(state) || Date.now() < playStartsAt + 300 || (!player.paused && !player.ended);
+
+function onNotice(e) {
+  const notice = JSON.parse(e.data);
+  const who = `${notice.kind === 'permission' ? 'PERMISO' : 'AVISO'} ${notice.project.toUpperCase()}`;
+  log(notice.duration ? `${who} · ${notice.duration}` : who, notice.text);
+  // Los que se recuperan al reconectar ya pasaron: solo se muestran.
+  if (!notice.audio || Date.now() - notice.at > NOTICE_FRESH_MS) return;
+  noticeQueue.push(notice);
+  if (noticeQueue.length > 3) noticeQueue.shift();
+  flushNotices();
+}
+
+function flushNotices() {
+  if (!noticeQueue.length || audioBusy()) return;
+  const notice = noticeQueue.shift();
+  if (Date.now() - notice.at > NOTICE_FRESH_MS) return flushNotices();
+  sfx.notice();
+  play(notice.audio, { squelch: false, rx: false, delay: 350, quiet: true });
+}
+
 function connect() {
   const events = new EventSource(`/api/events?t=${encodeURIComponent(token)}&c=${clientId}`);
   events.onopen = () => (radio.dataset.link = 'on');
   events.onerror = () => (radio.dataset.link = 'off');
   events.addEventListener('reply', onIncoming('CLAUDE'));
   events.addEventListener('notify', onIncoming('PERMISO'));
+  events.addEventListener('notice', onNotice);
 }
 
 // Mantiene la pantalla encendida: si el teléfono se bloquea, Safari corta la conexión.
