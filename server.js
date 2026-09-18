@@ -13,7 +13,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer } from './lib/speech.js';
-import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight } from './lib/iterm.js';
+import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
+import { listFolders, safeDir } from './lib/folders.js';
 import { synthesize, getClip } from './lib/tts.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -26,6 +27,7 @@ const MIME = {
   '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.m4a': 'audio/mp4',
   '.webmanifest': 'application/manifest+json',
 };
 
@@ -267,6 +269,46 @@ async function handleSelect(req, res) {
   return json(res, 200, { ...payload, audio: await speak(`Canal ${payload.active.number}. ${target.project}.`) });
 }
 
+async function handleFolders(res, url) {
+  const { channels } = await listChannels();
+  const activeDirs = new Set(channels.map((c) => c.cwd));
+  return json(res, 200, await listFolders(cfg.projectsRoot, url.searchParams.get('path') || '', activeDirs));
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Abre una ventana de iTerm2 con Claude Code en la carpeta elegida y sintoniza ese canal.
+async function handleOpen(req, res) {
+  const clientId = req.headers['x-supervoz-client'] || null;
+  const { path: rel = '' } = await readJson(req);
+  const { full } = await safeDir(cfg.projectsRoot, rel);
+  const session = await openClaude(full, cfg.claudeCommand);
+  log(`+ nueva sesión de Claude en ${full}`);
+
+  let found;
+  for (let i = 0; i < 30; i++) {
+    await sleep(500);
+    found = await listChannels();
+    if (found.channels.some((c) => c.id === session.id)) break;
+  }
+  const target = found.channels.find((c) => c.id === session.id);
+  if (!target) return json(res, 504, { error: 'Se abrió la terminal, pero Claude Code no arrancó.' });
+
+  selectedId = target.id;
+  const index = found.channels.indexOf(target);
+  await syncHighlight(target, index);
+
+  // En una carpeta nueva, Claude Code primero pregunta si se confía en ella.
+  await sleep(1500);
+  const screen = await sessionContents(target.id).catch(() => '');
+  const asksTrust = /trust/i.test(screen);
+  if (asksTrust) pending.set(target.tty, { project: target.project, clientId, permission: true });
+
+  const speech = `Canal ${index + 1}. ${target.project}. ` +
+    (asksTrust ? 'Claude pregunta si confiás en esta carpeta. Decí sí para aceptar.' : 'Claude está listo.');
+  return json(res, 200, { ...channelsPayload({ ...found, active: target }), trust: asksTrust, audio: await speak(speech) });
+}
+
 async function serveStatic(res, pathname) {
   const file = path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
   if (!file.startsWith(PUBLIC)) return json(res, 404, { error: 'no encontrado' });
@@ -293,6 +335,8 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/channels') return json(res, 200, channelsPayload(await resolveChannels()));
     if (route === 'POST /api/channel') return await handleSelect(req, res);
     if (route === 'POST /api/talk') return await handleTalk(req, res);
+    if (route === 'GET /api/folders') return await handleFolders(res, url);
+    if (route === 'POST /api/open') return await handleOpen(req, res);
     if (route === 'POST /api/hook') return await handleHook(req, res);
     if (route === 'POST /api/escape') {
       const { active } = await resolveChannels();

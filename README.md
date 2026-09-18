@@ -31,6 +31,8 @@ La primera vez macOS pide permiso de Automatización para que `node` controle iT
 
 - **PTT**: mantener, esperar el bip, hablar y soltar. Se envía solo.
 - **Canales**: cada sesión de iTerm2 con Claude Code es un canal. Deslizá la pantalla a la izquierda o a la derecha para cambiar; se anuncia por voz y se muestra de qué trata la sesión. Si no elegiste ninguno, sigue a la terminal activa en la Mac. Las terminales con una shell común no aparecen, para no ejecutar comandos dictados.
+- En la Mac, la pestaña del canal sintonizado se pinta de naranja y lleva la marca "📻 CH03" mientras haya un teléfono conectado.
+- **＋** abre un explorador de carpetas dentro de `projectsRoot` (por defecto `~/Development`). "ABRIR CLAUDE ACÁ" abre una ventana nueva de iTerm2 con Claude Code en esa carpeta y sintoniza el canal. Si Claude pregunta si confiás en la carpeta, se contesta con "sí".
 - La respuesta suena **solo en el dispositivo que habló**; si la web está abierta en otro lado, ahí solo se ve el texto. Si le hablaste a un canal y cambiaste a otro, la respuesta se anuncia con "Desde <proyecto>".
 - Si Claude pide un permiso, se escucha el aviso. Respondiendo "sí" o "dale" se aprueba, y con "no" se cancela.
 - **REPETIR** vuelve a leer la última respuesta, **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
@@ -40,4 +42,6 @@ Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulari
 
 ## Desarrollo
 
-`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso).
+`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) y del explorador de carpetas (que no se pueda salir de la raíz).
+
+Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar y soltar, `rx.m4a` cuando llega una respuesta.

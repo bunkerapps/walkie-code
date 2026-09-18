@@ -201,11 +201,35 @@ function squelch(dur = 0.22) {
   src.start();
 }
 
+// Sonidos grabados del equipo (public/sounds). Si todavía no cargaron, se sintetizan.
+const samples = {};
+
+async function loadSamples() {
+  const ac = audioCtx();
+  await Promise.all(['ptt', 'rx'].map(async (name) => {
+    try {
+      const res = await fetch(`sounds/${name}.m4a`);
+      samples[name] = await ac.decodeAudioData(await res.arrayBuffer());
+    } catch {}
+  }));
+}
+
+function playSample(name) {
+  const buffer = samples[name];
+  if (!buffer) return false;
+  const ac = audioCtx();
+  const src = ac.createBufferSource();
+  src.buffer = buffer;
+  src.connect(ac.destination);
+  src.start();
+  return true;
+}
+
 const sfx = {
-  txStart: () => beep([[1250, 0.07]]),
-  roger: () => beep([[1500, 0.07], [1050, 0.1]]),
+  txStart: () => playSample('ptt') || beep([[1250, 0.07]]),
+  roger: () => playSample('ptt') || beep([[1500, 0.07], [1050, 0.1]]),
   click: () => beep([[2200, 0.02]], 0.06),
-  squelch: () => squelch(),
+  incoming: () => playSample('rx') || squelch(),
   error: () => beep([[320, 0.14], [220, 0.2]]),
 };
 
@@ -230,12 +254,12 @@ for (const type of ['ended', 'pause', 'error']) {
 function play(src, { squelch: withSquelch = true, rx = true } = {}) {
   player.pause();
   setAudioSession('playback');
-  if (withSquelch) sfx.squelch();
+  if (withSquelch) sfx.incoming();
   player.dataset.rx = rx ? '1' : '';
   setTimeout(() => {
     player.src = `${src}?t=${encodeURIComponent(token)}`;
     player.play().catch(() => log('', 'TOCÁ REPETIR PARA ESCUCHAR', { muted: true }));
-  }, withSquelch ? 220 : 0);
+  }, withSquelch ? 280 : 0);
 }
 
 function stopPlayback() {
@@ -391,6 +415,7 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 ptt.addEventListener('contextmenu', (e) => e.preventDefault());
 
 addEventListener('keydown', (e) => {
+  if (e.target instanceof HTMLInputElement) return;
   if (e.code === 'Space' && !e.repeat) {
     e.preventDefault();
     startTx();
@@ -413,6 +438,114 @@ $('escape').addEventListener('click', async () => {
     log('', 'ESC ENVIADO A CLAUDE', { muted: true });
     if (state === 'waiting') setState('idle');
   } else fail('NO SE PUDO ENVIAR ESC');
+});
+
+// ---------- Abrir Claude en una carpeta ----------
+
+const picker = $('picker');
+const pickerOpen = $('picker-open');
+let folderView = null;
+
+function pickerMessage(text) {
+  const li = document.createElement('li');
+  li.className = 'empty';
+  li.textContent = text;
+  $('picker-list').replaceChildren(li);
+}
+
+async function loadFolder(rel = '') {
+  pickerMessage('CARGANDO…');
+  try {
+    const res = await api(`/api/folders?path=${encodeURIComponent(rel)}`);
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error);
+    folderView = body;
+    $('picker-filter').value = '';
+    renderFolders();
+  } catch (err) {
+    pickerMessage((err.message || 'SIN CONEXIÓN CON LA MAC').toUpperCase());
+  }
+}
+
+function renderFolders() {
+  const view = folderView;
+  if (!view) return;
+  $('picker-path').textContent = view.rel || `~/${view.name}`;
+  $('picker-back').disabled = view.parent === null;
+  pickerOpen.textContent = view.active ? '▶ OTRO CLAUDE ACÁ' : '▶ ABRIR CLAUDE ACÁ';
+
+  const query = $('picker-filter').value.trim().toLowerCase();
+  const rows = view.folders.filter((f) => f.name.toLowerCase().includes(query));
+  if (!rows.length) return pickerMessage(query ? 'NADA COINCIDE' : 'SIN SUBCARPETAS');
+
+  $('picker-list').replaceChildren(
+    ...rows.map((folder) => {
+      const li = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = folder.name;
+      button.append(name);
+      for (const [on, label] of [[folder.active, 'EN USO'], [folder.git, 'GIT']]) {
+        if (!on) continue;
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = label;
+        button.append(tag);
+      }
+      button.append('›');
+      button.addEventListener('click', () => {
+        sfx.click();
+        loadFolder(folder.rel);
+      });
+      li.append(button);
+      return li;
+    }),
+  );
+}
+
+function openPicker() {
+  unlockAudio();
+  picker.hidden = false;
+  loadFolder(folderView?.rel || '');
+}
+
+function closePicker() {
+  picker.hidden = true;
+  $('picker-filter').blur();
+}
+
+$('new').addEventListener('click', openPicker);
+$('picker-close').addEventListener('click', closePicker);
+$('picker-back').addEventListener('click', () => folderView?.parent !== null && loadFolder(folderView.parent));
+$('picker-filter').addEventListener('input', renderFolders);
+
+pickerOpen.addEventListener('click', async () => {
+  unlockAudio();
+  sfx.click();
+  pickerOpen.disabled = true;
+  pickerOpen.textContent = '… ARRANCANDO CLAUDE';
+  try {
+    const res = await api('/api/open', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: folderView?.rel || '' }),
+    });
+    const body = await res.json();
+    closePicker();
+    if (!res.ok) return fail((body.error || 'NO SE PUDO ABRIR').toUpperCase());
+    applyChannels(body);
+    renderChannel(1);
+    if (body.trust) log('PERMISO', 'CLAUDE PREGUNTA SI CONFIÁS EN LA CARPETA. DECÍ "SÍ".');
+    if (body.audio) play(body.audio, { squelch: false, rx: false });
+  } catch {
+    closePicker();
+    fail('SIN CONEXIÓN CON LA MAC');
+  } finally {
+    pickerOpen.disabled = false;
+    renderFolders();
+  }
 });
 
 // ---------- Canal con la Mac ----------
@@ -461,6 +594,7 @@ if (!token) {
   log('!', 'FALTA EL TOKEN. ABRÍ EL LINK QUE IMPRIME EL SERVIDOR.');
 } else {
   setState('idle');
+  loadSamples();
   connect();
   refreshChannels();
   setInterval(refreshChannels, 10000);

@@ -59,7 +59,19 @@
       <button type="button" class="key" id="replay">REPETIR</button>
       <button type="button" class="key" id="mute">SILENCIO</button>
       <button type="button" class="key key-danger" id="escape">ESC</button>
+      <button type="button" class="key key-new" id="new" aria-label="Abrir Claude en una carpeta">＋</button>
     </nav>
+
+    <section class="picker" id="picker" hidden aria-label="Abrir Claude en una carpeta">
+      <header class="picker-head">
+        <button type="button" class="picker-btn" id="picker-back" aria-label="Carpeta anterior">◂</button>
+        <span class="picker-path" id="picker-path">DEVELOPMENT</span>
+        <button type="button" class="picker-btn" id="picker-close" aria-label="Cerrar">✕</button>
+      </header>
+      <input class="picker-filter" id="picker-filter" type="search" placeholder="FILTRAR…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <ul class="picker-list" id="picker-list"></ul>
+      <button type="button" class="picker-open" id="picker-open">▶ ABRIR CLAUDE ACÁ</button>
+    </section>
   </main>
 
   <script src="app.js" type="module"></script>
