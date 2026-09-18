@@ -13,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer } from './lib/speech.js';
-import { writeAndSubmit, pressKey, listChannels } from './lib/iterm.js';
+import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight } from './lib/iterm.js';
 import { synthesize, getClip } from './lib/tts.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -45,8 +45,27 @@ async function resolveChannels() {
   const { channels } = list;
   // Si la sesión elegida se cerró, se vuelve a seguir la terminal activa en la Mac.
   if (list.ok && selectedId && !channels.some((c) => c.id === selectedId)) selectedId = null;
-  const active =channels.find((c) => c.id === selectedId) || channels.find((c) => c.current) || channels[0] || null;
+  const active = channels.find((c) => c.id === selectedId) || channels.find((c) => c.current) || channels[0] || null;
+  await syncHighlight(active, channels.indexOf(active));
   return { ...list, active };
+}
+
+const chLabel = (index) => `CH${String(index + 1).padStart(2, '0')}`;
+
+// En la Mac, la pestaña del canal sintonizado se pinta de naranja y lleva la marca "📻 CH03".
+// Solo mientras haya algún teléfono conectado.
+let highlighted = null; // { tty, label }
+
+async function syncHighlight(active, index) {
+  const want = active && clients.size > 0 ? { tty: active.tty, label: `📻 ${chLabel(index)}` } : null;
+  if (highlighted && highlighted.tty !== want?.tty) {
+    await unhighlight(highlighted.tty);
+    highlighted = null;
+  }
+  if (want && highlighted?.label !== want.label) {
+    await highlight(want.tty, want.label).catch(() => {});
+    highlighted = want;
+  }
 }
 
 // iTerm2 muestra "✳ Tarea en curso (claude)": queda solo la tarea.
@@ -101,11 +120,13 @@ function openEvents(req, res, url) {
   const meta = { clientId: url.searchParams.get('c'), device: deviceName(req) };
   clients.set(res, meta);
   log(`+ conectado ${meta.device} (${clients.size} en total)`);
+  resolveChannels().catch(() => {});
   const ping = setInterval(() => res.write(': ping\n\n'), 20000);
   req.on('close', () => {
     clearInterval(ping);
     clients.delete(res);
     log(`- desconectado ${meta.device} (${clients.size} en total)`);
+    if (clients.size === 0) syncHighlight(null).catch(() => {});
   });
 }
 
@@ -240,6 +261,7 @@ async function handleSelect(req, res) {
   const target = found.channels.find((c) => c.id === id);
   if (!target) return json(res, 404, { error: 'Ese canal ya no existe.', ...channelsPayload(found) });
   selectedId = id;
+  await syncHighlight(target, found.channels.indexOf(target));
   const payload = channelsPayload({ ...found, active: target });
   log(`= canal ${payload.active.number}: ${target.project}`);
   return json(res, 200, { ...payload, audio: await speak(`Canal ${payload.active.number}. ${target.project}.`) });
@@ -291,8 +313,9 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-function shutdown() {
+async function shutdown() {
   shuttingDown = true;
+  if (highlighted) await unhighlight(highlighted.tty);
   whisper?.kill();
   server.close();
   process.exit(0);
