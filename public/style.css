@@ -230,6 +230,18 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
   box-shadow: inset 0 2px 5px rgba(0,0,0,0.7), 0 1px 0 rgba(255,255,255,0.05);
   transform-origin: center;
 }
+.grille { display: grid; place-items: center; }
+.grille-label {
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  padding: 1px 6px 1px 9px;
+  color: var(--ink-dim);
+  background: var(--body-lo);
+  border-radius: 3px;
+}
+.grille:active { filter: brightness(1.3); }
+
 [data-state="rx"] .grille { animation: speaker 180ms ease-in-out infinite alternate; }
 @keyframes speaker { to { transform: scaleY(1.08); filter: brightness(1.4); } }
 
@@ -402,6 +414,16 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 }
 .picker-open:active { transform: translateY(3px); box-shadow: 0 1px 0 #7a2805; }
 .picker-open:disabled { filter: saturate(0.3); }
+
+/* Selector de voz */
+.rate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 22px;
+}
+.rate-label { flex: 1; text-align: center; }
+.picker-list .current { font-size: 18px; }
 
 @media (max-height: 700px) {
   .radio { gap: 10px; padding-top: 14px; }

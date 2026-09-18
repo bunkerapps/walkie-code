@@ -47,7 +47,9 @@
       <div class="lcd-log" id="log"></div>
     </section>
 
-    <div class="grille" aria-hidden="true"></div>
+    <button type="button" class="grille" id="voice-open" aria-label="Elegir la voz de las respuestas">
+      <span class="grille-label">VOZ</span>
+    </button>
 
     <button class="ptt" id="ptt" type="button" aria-label="Mantener presionado para hablar">
       <span class="ptt-ring">
@@ -74,6 +76,19 @@
       <input class="picker-filter" id="picker-filter" type="search" placeholder="FILTRAR…" autocomplete="off" autocapitalize="off" spellcheck="false">
       <ul class="picker-list" id="picker-list"></ul>
       <button type="button" class="picker-open" id="picker-open">▶ ABRIR CLAUDE ACÁ</button>
+    </section>
+
+    <section class="picker" id="voices" hidden aria-label="Voz de las respuestas">
+      <header class="picker-head">
+        <span class="picker-path">VOZ</span>
+        <button type="button" class="picker-btn" id="voices-close" aria-label="Cerrar">✕</button>
+      </header>
+      <div class="rate">
+        <button type="button" class="picker-btn" id="rate-down" aria-label="Más lento">−</button>
+        <span class="rate-label" id="rate-label">VELOCIDAD</span>
+        <button type="button" class="picker-btn" id="rate-up" aria-label="Más rápido">＋</button>
+      </div>
+      <ul class="picker-list" id="voices-list"></ul>
     </section>
   </main>
 

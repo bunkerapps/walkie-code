@@ -11,10 +11,11 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from './lib/config.js';
+import { loadConfig, saveConfig } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer } from './lib/speech.js';
 import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
+import { listVoices } from './lib/voices.js';
 import { synthesize, getClip } from './lib/tts.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -309,6 +310,30 @@ async function handleOpen(req, res) {
   return json(res, 200, { ...channelsPayload({ ...found, active: target }), trust: asksTrust, audio: await speak(speech) });
 }
 
+// ---------- Voz de las respuestas ----------
+
+const RATE_LIMITS = [120, 300];
+
+async function handleVoices(res) {
+  return json(res, 200, { voices: await listVoices(cfg.language), current: cfg.voice, rate: cfg.rate });
+}
+
+// Cambia la voz o la velocidad, la guarda y devuelve una muestra para escucharla.
+async function handleVoice(req, res) {
+  const { voice, rate } = await readJson(req);
+  const voices = await listVoices(cfg.language);
+  const chosen = voice ? voices.find((v) => v.name === voice) : voices.find((v) => v.name === cfg.voice);
+  if (!chosen) return json(res, 404, { error: 'Esa voz no está instalada en la Mac.' });
+
+  cfg.voice = chosen.name;
+  if (rate !== undefined) cfg.rate = Math.min(RATE_LIMITS[1], Math.max(RATE_LIMITS[0], Math.round(Number(rate)) || cfg.rate));
+  saveConfig({ voice: cfg.voice, rate: cfg.rate });
+  log(`= voz: ${cfg.voice} a ${cfg.rate} palabras por minuto`);
+
+  const sample = voice ? `Hola, soy ${chosen.label.replace(/\s*\(.*\)$/, '')}. Así te voy a leer las respuestas.` : 'Así voy a hablar ahora.';
+  return json(res, 200, { current: cfg.voice, rate: cfg.rate, audio: await speak(sample) });
+}
+
 async function serveStatic(res, pathname) {
   const file = path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
   if (!file.startsWith(PUBLIC)) return json(res, 404, { error: 'no encontrado' });
@@ -336,6 +361,8 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/channel') return await handleSelect(req, res);
     if (route === 'POST /api/talk') return await handleTalk(req, res);
     if (route === 'GET /api/folders') return await handleFolders(res, url);
+    if (route === 'GET /api/voices') return await handleVoices(res);
+    if (route === 'POST /api/voice') return await handleVoice(req, res);
     if (route === 'POST /api/open') return await handleOpen(req, res);
     if (route === 'POST /api/hook') return await handleHook(req, res);
     if (route === 'POST /api/escape') {

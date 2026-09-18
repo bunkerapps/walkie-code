@@ -547,6 +547,83 @@ pickerOpen.addEventListener('click', async () => {
   }
 });
 
+// ---------- Voz de las respuestas ----------
+
+const voicesPanel = $('voices');
+const RATE_STEP = 20;
+let voiceState = null; // { voices, current, rate }
+
+function renderVoices() {
+  if (!voiceState) return;
+  $('rate-label').textContent = `VELOCIDAD ${voiceState.rate}`;
+  $('voices-list').replaceChildren(
+    ...voiceState.voices.map((voice) => {
+      const li = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = voice.label;
+      const region = document.createElement('span');
+      region.className = 'tag';
+      region.textContent = voice.region;
+      button.append(name, region);
+      if (voice.name === voiceState.current) {
+        const mark = document.createElement('span');
+        mark.className = 'current';
+        mark.textContent = '●';
+        button.append(mark);
+      }
+      button.addEventListener('click', () => chooseVoice({ voice: voice.name }));
+      li.append(button);
+      return li;
+    }),
+  );
+}
+
+async function openVoices() {
+  unlockAudio();
+  voicesPanel.hidden = false;
+  const li = document.createElement('li');
+  li.className = 'empty';
+  li.textContent = 'CARGANDO…';
+  $('voices-list').replaceChildren(li);
+  try {
+    const res = await api('/api/voices');
+    voiceState = await res.json();
+    renderVoices();
+  } catch {
+    li.textContent = 'SIN CONEXIÓN CON LA MAC';
+  }
+}
+
+async function chooseVoice(change) {
+  unlockAudio();
+  sfx.click();
+  try {
+    const res = await api('/api/voice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(change),
+    });
+    const body = await res.json();
+    if (!res.ok) return fail((body.error || 'NO SE PUDO CAMBIAR LA VOZ').toUpperCase());
+    Object.assign(voiceState, { current: body.current, rate: body.rate });
+    renderVoices();
+    play(body.audio, { squelch: false, rx: false });
+  } catch {
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+}
+
+$('voice-open').addEventListener('click', openVoices);
+$('voices-close').addEventListener('click', () => {
+  voicesPanel.hidden = true;
+  stopPlayback();
+});
+$('rate-down').addEventListener('click', () => voiceState && chooseVoice({ rate: voiceState.rate - RATE_STEP }));
+$('rate-up').addEventListener('click', () => voiceState && chooseVoice({ rate: voiceState.rate + RATE_STEP }));
+
 // ---------- Canal con la Mac ----------
 
 function onIncoming(label) {
