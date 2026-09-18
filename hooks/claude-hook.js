@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Hook de Claude Code para los eventos Stop y Notification.
+// Hook de Claude Code para los eventos Stop, PermissionRequest, Notification y UserPromptSubmit.
 // Le pasa a supervoz la última respuesta de Claude y la terminal donde corre.
 // Si supervoz no está corriendo no hace nada: nunca debe frenar a Claude Code.
 
@@ -8,6 +8,8 @@ import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
 
 const TIMEOUT_MS = 1500;
+// UserPromptSubmit frena el envío del prompt hasta que el hook termina: tiene que ser rápido.
+const TURN_TIMEOUT_MS = 500;
 
 // El hook hereda la terminal de Claude Code: se sube por los procesos padre hasta encontrarla.
 function findTty() {
@@ -48,10 +50,26 @@ function isToolResult(entry) {
   return Array.isArray(c) && c.some((part) => part.type === 'tool_result');
 }
 
+function post(cfg, body, timeout = TIMEOUT_MS) {
+  return fetch(`http://127.0.0.1:${cfg.port}/api/hook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Supervoz-Token': cfg.token },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeout),
+  });
+}
+
+// UserPromptSubmit: le avisa a supervoz que empezó un turno, para medir cuánto dura
+// y avisar al teléfono si fue largo. No imprime nada (acá stdout se sumaría al prompt).
+async function turnStarted(cfg, input) {
+  await post(cfg, { event: 'UserPromptSubmit', tty: findTty(), cwd: input.cwd }, TURN_TIMEOUT_MS);
+}
+
 async function main() {
   const input = JSON.parse(readFileSync(0, 'utf8') || '{}');
   const cfg = loadConfig({ create: false });
   if (!cfg.token) return;
+  if (input.hook_event_name === 'UserPromptSubmit') return turnStarted(cfg, input);
 
   const body = { event: input.hook_event_name, tty: findTty(), cwd: input.cwd };
 
@@ -74,12 +92,7 @@ async function main() {
     return;
   }
 
-  await fetch(`http://127.0.0.1:${cfg.port}/api/hook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Supervoz-Token': cfg.token },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  await post(cfg, body);
 }
 
 main().catch(() => {}).finally(() => process.exit(0));

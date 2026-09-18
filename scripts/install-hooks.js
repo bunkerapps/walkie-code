@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Registra el hook de supervoz en ~/.claude/settings.json (Stop y PermissionRequest).
+// Registra el hook de supervoz en ~/.claude/settings.json
+// (Stop, PermissionRequest y UserPromptSubmit, este último para medir cuánto dura cada turno).
 // Agrega sin tocar los hooks que ya existen, deja un backup y se puede correr varias veces.
 // Con --remove lo saca.
 
@@ -11,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 const SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
 const HOOK = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'claude-hook.js');
 const COMMAND = `node "${HOOK}"`;
-const EVENTS = ['Stop', 'PermissionRequest'];
+const EVENTS = ['Stop', 'PermissionRequest', 'UserPromptSubmit'];
 const remove = process.argv.includes('--remove');
 
 const settings = existsSync(SETTINGS) ? JSON.parse(readFileSync(SETTINGS, 'utf8')) : {};
