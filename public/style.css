@@ -104,6 +104,22 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .brand-name { font-weight: 800; font-size: 26px; letter-spacing: 0.12em; color: #e2e5d8; }
 .brand-model { font-weight: 500; font-size: 12px; letter-spacing: 0.22em; color: var(--ink-dim); margin-top: 3px; }
 
+.faceplate-right { display: flex; align-items: center; gap: 14px; }
+
+/* Perilla de recarga: en la app de pantalla de inicio no hay botón del navegador */
+.knob {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink);
+  background: repeating-conic-gradient(from 0deg, #3a3e35 0 6deg, #25281f 6deg 12deg);
+  box-shadow: 0 3px 0 #0c0d0b, inset 0 1px 0 rgba(255,255,255,0.1);
+  transition: transform 300ms ease-out;
+}
+.knob:active { transform: rotate(90deg) translateY(1px); }
+
 .led {
   width: 14px;
   height: 14px;

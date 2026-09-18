@@ -428,6 +428,7 @@ $('replay').addEventListener('click', () => {
   lastClip ? play(lastClip) : log('', 'TODAVÍA NO HAY RESPUESTAS', { muted: true });
 });
 $('mute').addEventListener('click', stopPlayback);
+$('reload').addEventListener('click', () => location.reload());
 $('escape').addEventListener('click', async () => {
   unlockAudio();
   stopPlayback();
