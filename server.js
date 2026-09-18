@@ -4,6 +4,7 @@
 //   iPhone (miniweb) --audio--> este servidor --> whisper-server (voz a texto)
 //                                             --> iTerm2 (escribe y envía en el canal elegido)
 //   Claude Code --hook Stop/PermissionRequest--> este servidor --say--> audio --SSE--> iPhone
+//   Claude Code --hook UserPromptSubmit--> este servidor: ¿lo dictó el teléfono? (estilo para voz)
 
 import http from 'node:http';
 import { spawn } from 'node:child_process';
@@ -17,6 +18,7 @@ import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openCla
 import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices } from './lib/voices.js';
 import { synthesize, getClip } from './lib/tts.js';
+import { isDictated } from './lib/voice-style.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -41,7 +43,8 @@ let selectedId = null;
 
 // Terminales a las que les hablamos y todavía no respondieron.
 // Solo se leen en voz alta las respuestas de estas, y solo en el teléfono que habló.
-const pending = new Map(); // tty -> { project, clientId, permission }
+// `sent` es lo último que se dictó ahí, para reconocerlo cuando Claude Code lo reciba.
+const pending = new Map(); // tty -> { project, clientId, permission, sent: { text, at } | null }
 
 const channelsNow = () => listChannels(cfg.names || {});
 
@@ -228,10 +231,20 @@ async function handleTalk(req, res) {
   // Si Claude está esperando un permiso, "sí" o "no" contestan el menú en vez de escribirse.
   const waiting = pending.get(active.tty);
   const answer = waiting?.permission ? permissionAnswer(text) : null;
-  if (answer) await pressKey(active.id, answer === 'yes' ? 'enter' : 'escape');
-  else await writeAndSubmit(active.id, text);
 
-  pending.set(active.tty, { project: active.project, clientId, permission: false });
+  // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
+  // y tiene que encontrar el texto dictado para pedir una respuesta apta para voz.
+  const sent = answer ? null : { text, at: Date.now() };
+  pending.set(active.tty, { project: active.project, clientId, permission: false, sent });
+  try {
+    if (answer) await pressKey(active.id, answer === 'yes' ? 'enter' : 'escape');
+    else await writeAndSubmit(active.id, text);
+  } catch (err) {
+    if (waiting) pending.set(active.tty, waiting);
+    else pending.delete(active.tty);
+    throw err;
+  }
+
   log(`> ${active.project}: ${answer ? `[permiso: ${answer}]` : text}`);
   return json(res, 200, { text, project: active.project, permission: answer });
 }
@@ -241,6 +254,15 @@ async function handleHook(req, res) {
   const body = await readJson(req);
   const waiting = pending.get(body.tty);
   if (!waiting) return json(res, 200, { ignored: true });
+
+  // Claude Code recibió un prompt: se contesta rápido, sin consultar a iTerm2,
+  // porque el hook lo está esperando antes de que Claude empiece.
+  if (body.event === 'UserPromptSubmit') {
+    const dictated = isDictated(waiting.sent, body.prompt);
+    if (dictated) waiting.sent = null; // se usa una sola vez
+    if (dictated) log(`~ ${waiting.project}: pide respuesta para escuchar`);
+    return json(res, 200, { dictated });
+  }
 
   // Si la respuesta viene de un canal distinto al que está en pantalla, se anuncia de dónde viene.
   const { active } = await resolveChannels().catch(() => ({}));
