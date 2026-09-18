@@ -42,6 +42,7 @@
       </div>
       <div class="lcd-state">
         <span id="state-label">LISTO</span>
+        <span class="lcd-spinner" id="spinner" aria-hidden="true"></span>
         <span class="lcd-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
       </div>
       <div class="lcd-log" id="log"></div>
@@ -89,6 +90,24 @@
         <button type="button" class="picker-btn" id="rate-up" aria-label="Más rápido">＋</button>
       </div>
       <ul class="picker-list" id="voices-list"></ul>
+    </section>
+
+    <section class="picker picker-small" id="rename" hidden aria-label="Nombre del canal">
+      <header class="picker-head">
+        <span class="picker-path">NOMBRE DEL CANAL</span>
+        <button type="button" class="picker-btn" id="rename-close" aria-label="Cerrar">✕</button>
+      </header>
+      <p class="rename-folder" id="rename-folder"></p>
+      <input class="picker-filter" id="rename-input" type="text" maxlength="40" placeholder="VACÍO = NOMBRE DE LA CARPETA" autocomplete="off" spellcheck="false">
+      <button type="button" class="picker-open" id="rename-save">GUARDAR</button>
+    </section>
+
+    <section class="picker" id="reader" hidden aria-label="Mensaje completo">
+      <header class="picker-head">
+        <span class="picker-path" id="reader-title">CLAUDE</span>
+        <button type="button" class="picker-btn" id="reader-close" aria-label="Cerrar">✕</button>
+      </header>
+      <div class="reader-text" id="reader-text"></div>
     </section>
   </main>
 

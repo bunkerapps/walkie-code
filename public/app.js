@@ -47,7 +47,21 @@ function api(path, options = {}) {
 
 let state = 'idle';
 
+// Los mismos signos que usa Claude Code en la terminal mientras piensa.
+const SPINNER = ['·', '✢', '✳', '✶', '✻', '✽', '✻', '✶', '✳', '✢'];
+let spinnerTimer = 0;
+
+function setSpinner(on) {
+  clearInterval(spinnerTimer);
+  if (!on) return;
+  let frame = 0;
+  const tick = () => ($('spinner').textContent = SPINNER[frame++ % SPINNER.length]);
+  tick();
+  spinnerTimer = setInterval(tick, 120);
+}
+
 function setState(next) {
+  if (next !== state) setSpinner(next === 'waiting');
   state = next;
   radio.dataset.state = next;
   $('state-label').textContent = STATE_LABELS[next] || next.toUpperCase();
@@ -64,6 +78,7 @@ function log(who, text, { muted = false } = {}) {
     p.append(b);
   }
   p.append(text);
+  p.addEventListener('click', () => openReader(who, text));
   logEl.append(p);
   while (logEl.children.length > 12) logEl.firstChild.remove();
   logEl.scrollTop = logEl.scrollHeight;
@@ -144,10 +159,29 @@ async function switchChannel(direction) {
 }
 
 // Deslizar a la izquierda = siguiente canal, a la derecha = anterior.
+// Mantener apretado el nombre del canal = ponerle un nombre propio.
+const LONG_PRESS_MS = 600;
 let swipeStart = null;
-lcd.addEventListener('pointerdown', (e) => (swipeStart = { x: e.clientX, y: e.clientY }));
-lcd.addEventListener('pointercancel', () => (swipeStart = null));
+let longPress = 0;
+
+lcd.addEventListener('pointerdown', (e) => {
+  swipeStart = { x: e.clientX, y: e.clientY };
+  if (e.target.closest('.lcd-top')) {
+    longPress = setTimeout(() => {
+      swipeStart = null;
+      openRename();
+    }, LONG_PRESS_MS);
+  }
+});
+lcd.addEventListener('pointermove', (e) => {
+  if (swipeStart && Math.hypot(e.clientX - swipeStart.x, e.clientY - swipeStart.y) > 10) clearTimeout(longPress);
+});
+lcd.addEventListener('pointercancel', () => {
+  clearTimeout(longPress);
+  swipeStart = null;
+});
 lcd.addEventListener('pointerup', (e) => {
+  clearTimeout(longPress);
   if (!swipeStart) return;
   const dx = e.clientX - swipeStart.x;
   const dy = e.clientY - swipeStart.y;
@@ -488,6 +522,7 @@ function renderFolders() {
       name.className = 'name';
       name.textContent = folder.name;
       button.append(name);
+      if (folder.alias) name.textContent = `${folder.name} · ${folder.alias}`;
       for (const [on, label] of [[folder.active, 'EN USO'], [folder.git, 'GIT']]) {
         if (!on) continue;
         const tag = document.createElement('span');
@@ -548,6 +583,58 @@ pickerOpen.addEventListener('click', async () => {
     renderFolders();
   }
 });
+
+// ---------- Nombre del canal ----------
+
+const renamePanel = $('rename');
+
+function openRename() {
+  const active = channels.find((c) => c.id === activeId);
+  if (!active) return log('', 'NO HAY CANAL PARA NOMBRAR', { muted: true });
+  sfx.click();
+  $('rename-folder').textContent = `CARPETA: ${active.folder}`;
+  $('rename-input').value = active.named ? active.project.replace(/·\d+$/, '') : '';
+  renamePanel.hidden = false;
+  $('rename-input').focus();
+}
+
+async function saveName() {
+  const name = $('rename-input').value;
+  $('rename-input').blur();
+  renamePanel.hidden = true;
+  unlockAudio();
+  try {
+    const res = await api('/api/name', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: activeId, name }),
+    });
+    const body = await res.json();
+    if (!res.ok) return fail((body.error || 'NO SE PUDO GUARDAR').toUpperCase());
+    applyChannels(body);
+    renderChannel(1);
+    if (body.audio) play(body.audio, { squelch: false, rx: false });
+  } catch {
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+}
+
+$('rename-save').addEventListener('click', saveName);
+$('rename-input').addEventListener('keydown', (e) => e.key === 'Enter' && saveName());
+$('rename-close').addEventListener('click', () => {
+  $('rename-input').blur();
+  renamePanel.hidden = true;
+});
+
+// ---------- Lector de mensajes completos ----------
+
+function openReader(who, text) {
+  $('reader-title').textContent = who || 'MENSAJE';
+  $('reader-text').textContent = text;
+  $('reader').hidden = false;
+  $('reader-text').scrollTop = 0;
+}
+$('reader-close').addEventListener('click', () => ($('reader').hidden = true));
 
 // ---------- Voz de las respuestas ----------
 
@@ -632,8 +719,7 @@ function onIncoming(label) {
   return (e) => {
     const { text, audio, project, to } = JSON.parse(e.data);
     const mine = !to || to === clientId;
-    const shown = text.length > 400 ? `${text.slice(0, 400)}…` : text;
-    log(project ? `${label} ${project.toUpperCase()}` : label, shown, { muted: !mine });
+    log(project ? `${label} ${project.toUpperCase()}` : label, text, { muted: !mine });
     // Si habló otro dispositivo, acá solo se muestra el texto.
     if (!mine) return;
     lastClip = audio;

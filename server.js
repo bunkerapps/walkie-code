@@ -43,8 +43,10 @@ let selectedId = null;
 // Solo se leen en voz alta las respuestas de estas, y solo en el teléfono que habló.
 const pending = new Map(); // tty -> { project, clientId, permission }
 
+const channelsNow = () => listChannels(cfg.names || {});
+
 async function resolveChannels() {
-  const list = await listChannels();
+  const list = await channelsNow();
   const { channels } = list;
   // Si la sesión elegida se cerró, se vuelve a seguir la terminal activa en la Mac.
   if (list.ok && selectedId && !channels.some((c) => c.id === selectedId)) selectedId = null;
@@ -60,7 +62,7 @@ const chLabel = (index) => `CH${String(index + 1).padStart(2, '0')}`;
 let highlighted = null; // { tty, label }
 
 async function syncHighlight(active, index) {
-  const want = active && clients.size > 0 ? { tty: active.tty, label: `📻 ${chLabel(index)}` } : null;
+  const want = active && clients.size > 0 ? { tty: active.tty, label: `📻 ${chLabel(index)} · ${active.project}` } : null;
   if (highlighted && highlighted.tty !== want?.tty) {
     await unhighlight(highlighted.tty);
     highlighted = null;
@@ -74,7 +76,8 @@ async function syncHighlight(active, index) {
 // iTerm2 muestra "✳ Tarea en curso (claude)": queda solo la tarea.
 const cleanTitle = (title) => title.replace(/^\W+\s*/u, '').replace(/\s*\(claude\)$/, '').trim();
 
-const publicChannel = (c, i) => c && { id: c.id, project: c.project, title: cleanTitle(c.title), number: i + 1 };
+const publicChannel = (c, i) =>
+  c && { id: c.id, project: c.project, folder: c.folder, named: c.project !== c.folder, title: cleanTitle(c.title), number: i + 1 };
 
 function channelsPayload({ channels, active, error }) {
   const index = channels.indexOf(active);
@@ -271,9 +274,9 @@ async function handleSelect(req, res) {
 }
 
 async function handleFolders(res, url) {
-  const { channels } = await listChannels();
+  const { channels } = await channelsNow();
   const activeDirs = new Set(channels.map((c) => c.cwd));
-  return json(res, 200, await listFolders(cfg.projectsRoot, url.searchParams.get('path') || '', activeDirs));
+  return json(res, 200, await listFolders(cfg.projectsRoot, url.searchParams.get('path') || '', activeDirs, cfg.names));
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -289,7 +292,7 @@ async function handleOpen(req, res) {
   let found;
   for (let i = 0; i < 30; i++) {
     await sleep(500);
-    found = await listChannels();
+    found = await channelsNow();
     if (found.channels.some((c) => c.id === session.id)) break;
   }
   const target = found.channels.find((c) => c.id === session.id);
@@ -334,6 +337,27 @@ async function handleVoice(req, res) {
   return json(res, 200, { current: cfg.voice, rate: cfg.rate, audio: await speak(sample) });
 }
 
+// Nombre propio para la carpeta de un canal. Vacío = vuelve al nombre de la carpeta.
+async function handleName(req, res) {
+  const { id, name = '' } = await readJson(req);
+  const found = await channelsNow();
+  const target = found.channels.find((c) => c.id === id);
+  if (!target?.cwd) return json(res, 404, { error: 'Ese canal ya no existe.' });
+
+  const clean = String(name).replace(/\s+/g, ' ').trim().slice(0, 40);
+  cfg.names = { ...(cfg.names || {}) };
+  if (clean) cfg.names[target.cwd] = clean;
+  else delete cfg.names[target.cwd];
+  saveConfig({ names: cfg.names });
+  log(`= nombre de ${target.cwd}: ${clean || '(el de la carpeta)'}`);
+
+  const updated = await resolveChannels();
+  const renamed = updated.channels.find((c) => c.id === id) || updated.active;
+  const payload = channelsPayload(updated);
+  const number = updated.channels.indexOf(renamed) + 1;
+  return json(res, 200, { ...payload, audio: await speak(`Canal ${number}. ${renamed.project}.`) });
+}
+
 async function serveStatic(res, pathname) {
   const file = path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
   if (!file.startsWith(PUBLIC)) return json(res, 404, { error: 'no encontrado' });
@@ -363,6 +387,7 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/folders') return await handleFolders(res, url);
     if (route === 'GET /api/voices') return await handleVoices(res);
     if (route === 'POST /api/voice') return await handleVoice(req, res);
+    if (route === 'POST /api/name') return await handleName(req, res);
     if (route === 'POST /api/open') return await handleOpen(req, res);
     if (route === 'POST /api/hook') return await handleHook(req, res);
     if (route === 'POST /api/escape') {
