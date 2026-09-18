@@ -46,4 +46,4 @@ Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulari
 
 `npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) y del explorador de carpetas (que no se pueda salir de la raíz).
 
-Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar y soltar, `rx.m4a` cuando llega una respuesta.
+Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar, `release.m4a` al soltar, `rx.m4a` cuando llega una respuesta.

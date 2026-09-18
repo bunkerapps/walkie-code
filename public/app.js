@@ -206,7 +206,7 @@ const samples = {};
 
 async function loadSamples() {
   const ac = audioCtx();
-  await Promise.all(['ptt', 'rx'].map(async (name) => {
+  await Promise.all(['ptt', 'release', 'rx'].map(async (name) => {
     try {
       const res = await fetch(`sounds/${name}.m4a`);
       samples[name] = await ac.decodeAudioData(await res.arrayBuffer());
@@ -227,6 +227,7 @@ function playSample(name) {
 
 const sfx = {
   txStart: () => playSample('ptt') || beep([[1250, 0.07]]),
+  release: () => playSample('release') || beep([[1500, 0.07], [1050, 0.1]]),
   click: () => beep([[2200, 0.02]], 0.06),
   incoming: () => playSample('rx') || squelch(),
   error: () => beep([[320, 0.14], [220, 0.2]]),
@@ -354,6 +355,7 @@ function endTx() {
     send(blob);
   };
   recorder.stop();
+  sfx.release();
 }
 
 function releaseMic() {
