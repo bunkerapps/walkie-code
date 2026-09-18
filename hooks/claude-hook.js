@@ -1,13 +1,18 @@
 #!/usr/bin/env node
-// Hook de Claude Code para los eventos Stop y Notification.
+// Hook de Claude Code para los eventos Stop, PermissionRequest, Notification y UserPromptSubmit.
 // Le pasa a supervoz la última respuesta de Claude y la terminal donde corre.
+// En UserPromptSubmit pregunta si el prompt lo dictó el teléfono y, si es así,
+// le pide a Claude una respuesta pensada para escuchar.
 // Si supervoz no está corriendo no hace nada: nunca debe frenar a Claude Code.
 
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
+import { VOICE_STYLE, promptContextOutput } from '../lib/voice-style.js';
 
 const TIMEOUT_MS = 1500;
+// UserPromptSubmit frena el prompt hasta que el hook termina: pasado este plazo se sale igual.
+const PROMPT_DEADLINE_MS = 1500;
 
 // El hook hereda la terminal de Claude Code: se sube por los procesos padre hasta encontrarla.
 function findTty() {
@@ -50,12 +55,18 @@ function isToolResult(entry) {
 
 async function main() {
   const input = JSON.parse(readFileSync(0, 'utf8') || '{}');
+  const isPrompt = input.hook_event_name === 'UserPromptSubmit';
+  if (isPrompt) setTimeout(() => process.exit(0), PROMPT_DEADLINE_MS).unref();
+
   const cfg = loadConfig({ create: false });
   if (!cfg.token) return;
+  if (isPrompt && cfg.voiceStyle === false) return;
 
   const body = { event: input.hook_event_name, tty: findTty(), cwd: input.cwd };
 
-  if (body.event === 'Stop') {
+  if (isPrompt) {
+    body.prompt = input.prompt || '';
+  } else if (body.event === 'Stop') {
     body.text = input.last_assistant_message || '';
     // La transcripción a veces se termina de escribir unos milisegundos después del hook.
     for (let i = 0; i < 4 && !body.text && input.transcript_path; i++) {
@@ -74,12 +85,17 @@ async function main() {
     return;
   }
 
-  await fetch(`http://127.0.0.1:${cfg.port}/api/hook`, {
+  const res = await fetch(`http://127.0.0.1:${cfg.port}/api/hook`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Supervoz-Token': cfg.token },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: AbortSignal.timeout(isPrompt ? PROMPT_DEADLINE_MS - 300 : TIMEOUT_MS),
   });
+
+  if (isPrompt && res.ok && (await res.json()).dictated) {
+    // En macOS la escritura a un pipe es asíncrona: hay que esperarla antes del process.exit.
+    await new Promise((r) => process.stdout.write(promptContextOutput(VOICE_STYLE), r));
+  }
 }
 
 main().catch(() => {}).finally(() => process.exit(0));
