@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Supervoz</title>
+  <meta name="description" content="Walkie-talkie para hablarle a Claude Code">
+  <meta name="theme-color" content="#161814">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Supervoz">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="radio" data-state="idle" data-link="off">
+    <div class="antenna" aria-hidden="true"></div>
+
+    <header class="faceplate">
+      <div class="brand">
+        <span class="brand-name">SUPERVOZ</span>
+        <span class="brand-model">CLV-1 · CLAUDE LINK</span>
+      </div>
+      <span class="led" aria-hidden="true"></span>
+    </header>
+
+    <section class="lcd" id="lcd" aria-live="polite" aria-label="Pantalla. Deslizá a los costados para cambiar de proyecto.">
+      <div class="lcd-top">
+        <span class="lcd-ch" id="ch">CH--</span>
+        <span class="lcd-project"><span id="project">SIN CANAL</span></span>
+        <span class="lcd-nav" id="ch-nav" aria-hidden="true"></span>
+        <span class="lcd-signal" aria-label="Conexión"><i></i><i></i><i></i><i></i></span>
+      </div>
+      <div class="lcd-state">
+        <span id="state-label">LISTO</span>
+        <span class="lcd-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      </div>
+      <div class="lcd-log" id="log"></div>
+    </section>
+
+    <div class="grille" aria-hidden="true"></div>
+
+    <button class="ptt" id="ptt" type="button" aria-label="Mantener presionado para hablar">
+      <span class="ptt-ring">
+        <span class="ptt-cap">
+          <span class="ptt-label">PTT</span>
+          <span class="ptt-hint" id="ptt-hint">MANTENÉ PARA HABLAR</span>
+        </span>
+      </span>
+    </button>
+
+    <nav class="keys">
+      <button type="button" class="key" id="replay">REPETIR</button>
+      <button type="button" class="key" id="mute">SILENCIO</button>
+      <button type="button" class="key key-danger" id="escape">ESC</button>
+    </nav>
+  </main>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+# Supervoz
+
+Walkie-talkie para hablarle a Claude Code desde el iPhone. Mantenés el botón, hablás, soltás: el texto se escribe en la sesión de iTerm2 elegida y la respuesta de Claude se escucha en el teléfono.
+
+```
+iPhone (miniweb) ──audio──▶ server.js ──▶ whisper-server (voz a texto, local)
+                                      └──▶ iTerm2: escribe y envía con Enter
+Claude Code ──hook Stop / PermissionRequest──▶ server.js ──say──▶ audio ──SSE──▶ iPhone
+```
+
+Nada sale de tu red salvo lo que Claude Code ya manda. La transcripción corre en la Mac con Whisper.
+
+## Requisitos
+
+- macOS con iTerm2 y Node 20+
+- `brew install whisper-cpp ffmpeg`
+- Modelo en `~/.supervoz/models/ggml-large-v3-turbo-q5_0.bin`
+  (`curl -L -o ~/.supervoz/models/ggml-large-v3-turbo-q5_0.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin`)
+- Tailscale en la Mac y en el iPhone (Safari solo da el micrófono sobre HTTPS)
+
+## Puesta en marcha
+
+1. `node scripts/install-hooks.js` registra los hooks en `~/.claude/settings.json`, sin tocar los que ya tenés. Se sacan con `--remove`.
+2. `scripts/service.sh install` lo deja corriendo como servicio de launchd: arranca solo al iniciar sesión y se reinicia si se cae. También sirven `restart`, `status`, `logs` y `uninstall`. Para desarrollo alcanza con `npm start`.
+3. Una sola vez: `tailscale up` y después `tailscale serve --bg 8787`. En la consola de Tailscale tienen que estar activados MagicDNS y los certificados HTTPS.
+4. En el iPhone abrí `https://<tu-mac>.<tu-tailnet>.ts.net/?t=<token>` (el token está en `~/.supervoz/config.json`) y usá "Agregar a pantalla de inicio".
+
+La primera vez macOS pide permiso de Automatización para que `node` controle iTerm2.
+
+## Uso
+
+- **PTT**: mantener, esperar el bip, hablar y soltar. Se envía solo.
+- **Canales**: cada sesión de iTerm2 con Claude Code es un canal. Deslizá la pantalla a la izquierda o a la derecha para cambiar; se anuncia por voz y se muestra de qué trata la sesión. Si no elegiste ninguno, sigue a la terminal activa en la Mac. Las terminales con una shell común no aparecen, para no ejecutar comandos dictados.
+- La respuesta suena **solo en el dispositivo que habló**; si la web está abierta en otro lado, ahí solo se ve el texto. Si le hablaste a un canal y cambiaste a otro, la respuesta se anuncia con "Desde <proyecto>".
+- Si Claude pide un permiso, se escucha el aviso. Respondiendo "sí" o "dale" se aprueba, y con "no" se cancela.
+- **REPETIR** vuelve a leer la última respuesta, **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
+- La pantalla queda encendida mientras la app está abierta. Si el teléfono se bloquea, al volver se recupera lo que llegó mientras tanto.
+
+Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`) y velocidad (`rate`).
+
+## Desarrollo
+
+`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso).
