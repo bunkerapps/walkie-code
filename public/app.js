@@ -227,7 +227,6 @@ function playSample(name) {
 
 const sfx = {
   txStart: () => playSample('ptt') || beep([[1250, 0.07]]),
-  roger: () => playSample('ptt') || beep([[1500, 0.07], [1050, 0.1]]),
   click: () => beep([[2200, 0.02]], 0.06),
   incoming: () => playSample('rx') || squelch(),
   error: () => beep([[320, 0.14], [220, 0.2]]),
@@ -355,7 +354,6 @@ function endTx() {
     send(blob);
   };
   recorder.stop();
-  sfx.roger();
 }
 
 function releaseMic() {
