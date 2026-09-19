@@ -451,6 +451,7 @@ async function afterSend(res, sent) {
     if (body.text) log('VOS', body.text, { muted: true });
     return fail((body.error || `ERROR ${res.status}`).toUpperCase());
   }
+  if ('switched' in body) return tunedByVoice(body);
   if (body.image && photo === sent) clearPhoto();
   const text = body.image ? `📎 ${body.text}` : body.text;
   log('VOS', body.permission ? `${text} (permiso)` : text);
@@ -575,6 +576,24 @@ $('attach-remove').addEventListener('click', () => {
   sfx.click();
   clearPhoto();
 });
+
+// Dijo "canal superprecio": el servidor ya sintonizó (o explica por qué no) y no le escribió a Claude.
+function tunedByVoice(body) {
+  log('VOS', body.text, { muted: true });
+  setState('idle');
+  if (!body.switched) {
+    sfx.error();
+    log('CANAL', (body.message || 'NO ENCONTRÉ ESE CANAL').toUpperCase());
+  } else {
+    const before = channels.findIndex((c) => c.id === activeId);
+    applyChannels(body);
+    const after = channels.findIndex((c) => c.id === activeId);
+    renderChannel(after < before ? -1 : 1);
+    sfx.click();
+    log('CANAL →', `CH${String(body.active.number).padStart(2, '0')} ${body.active.project.toUpperCase()}`);
+  }
+  if (body.audio) play(body.audio, { squelch: false, rx: false });
+}
 
 // ---------- Entrada: dedo o barra espaciadora ----------
 
