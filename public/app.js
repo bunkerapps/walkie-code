@@ -232,9 +232,17 @@ lcd.addEventListener('pointerup', (e) => {
 
 let ctx;
 
+// iOS deja el motor de sonido "interrupted" (no solo "suspended") después de un rato en segundo plano,
+// una llamada o el micrófono: antes solo se reanudaba "suspended" y los efectos quedaban mudos.
+// Se reanuda en cualquier estado que no sea "running", y si iOS lo cerró se crea otro
+// (los sonidos ya decodificados sirven igual en el nuevo).
 function audioCtx() {
-  ctx ??= new AudioContext();
-  if (ctx.state === 'suspended') ctx.resume();
+  if (!ctx || ctx.state === 'closed') ctx = new AudioContext();
+  if (ctx.state !== 'running') {
+    ctx.resume().catch(() => {
+      ctx = new AudioContext();
+    });
+  }
   return ctx;
 }
 
@@ -1492,6 +1500,7 @@ async function requestWakeLock() {
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return reportHidden();
+  audioCtx();
   requestWakeLock();
   refreshChannels();
   clearNotifications();
