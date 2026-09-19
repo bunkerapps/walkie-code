@@ -21,7 +21,21 @@ const MIN_TX_MS = 400;
 const SWIPE_PX = 40;
 
 // Identifica a este dispositivo: las respuestas suenan solo en el que habló.
-const clientId = crypto.randomUUID?.() || String(Math.random()).slice(2);
+// Se guarda para que sobreviva a una recarga: si iOS mató la app mientras Claude pensaba,
+// la respuesta (y su aviso push) sigue siendo de este teléfono.
+function readClientId() {
+  const fresh = () => crypto.randomUUID?.() || String(Math.random()).slice(2);
+  try {
+    const saved = localStorage.getItem('supervoz-client');
+    if (saved) return saved;
+    const id = fresh();
+    localStorage.setItem('supervoz-client', id);
+    return id;
+  } catch {
+    return fresh();
+  }
+}
+const clientId = readClientId();
 
 // ---------- Token ----------
 
@@ -736,6 +750,116 @@ function connect() {
   events.addEventListener('notify', onIncoming('PERMISO'));
 }
 
+// ---------- Avisos push (teléfono bloqueado) ----------
+
+// iOS solo da Web Push a la app agregada a la pantalla de inicio (iOS 16.4 o más nuevo).
+const pushButton = $('push');
+const pushSupported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+let swRegistration = null;
+let pushKey = null;
+
+const setPush = (mode) => {
+  pushButton.dataset.push = mode;
+  pushButton.setAttribute('aria-pressed', String(mode === 'on'));
+};
+
+function base64UrlToBytes(s) {
+  const raw = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function saveSubscription(subscription, test) {
+  const res = await api('/api/push/subscribe', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subscription: subscription.toJSON(), test }),
+  });
+  return res.json().catch(() => ({ ok: res.ok, status: res.status }));
+}
+
+// Al abrir: registra el service worker, trae la clave del servidor y, si ya había avisos,
+// le vuelve a pasar la suscripción al servidor (por si iOS la rotó o se borró push.json).
+// Se hace de antemano para que el toque en AVISOS vaya directo al pedido de permiso.
+async function initPush() {
+  if (!pushSupported) return setPush('na');
+  try {
+    swRegistration = await navigator.serviceWorker.register('sw.js');
+    pushKey = (await (await api('/api/push')).json()).publicKey;
+    const current = await swRegistration.pushManager.getSubscription();
+    if (current && Notification.permission === 'granted') {
+      setPush('on');
+      await saveSubscription(current, false);
+    }
+  } catch {}
+}
+
+async function enablePush() {
+  setPush('busy');
+  // El pedido de permiso tiene que salir dentro del toque: nada de esperas antes.
+  const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
+  if (permission !== 'granted') {
+    setPush('off');
+    return log('!', 'AVISOS BLOQUEADOS. ACTIVALOS EN AJUSTES › NOTIFICACIONES › SUPERVOZ.');
+  }
+  try {
+    swRegistration ??= await navigator.serviceWorker.register('sw.js');
+    pushKey ??= (await (await api('/api/push')).json()).publicKey;
+    const subscription = await swRegistration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(pushKey) });
+    const result = await saveSubscription(subscription, true);
+    if (!result.ok) throw new Error(`EL SERVICIO DE PUSH RESPONDIÓ ${result.status || '?'}`);
+    setPush('on');
+    log('', 'AVISOS ACTIVADOS: CON EL TELÉFONO BLOQUEADO TE LLEGA UNA NOTIFICACIÓN', { muted: true });
+  } catch (err) {
+    setPush('off');
+    // Si iOS no dejó suscribir fuera del toque, el segundo intento ya tiene permiso y va directo.
+    fail(err.name === 'NotAllowedError' ? 'TOCÁ AVISOS OTRA VEZ' : (err.message || 'NO SE PUDIERON ACTIVAR LOS AVISOS').toUpperCase());
+  }
+}
+
+async function disablePush() {
+  setPush('busy');
+  try {
+    const subscription = await swRegistration?.pushManager.getSubscription();
+    if (subscription) {
+      await api('/api/push/unsubscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endpoint: subscription.endpoint }),
+      });
+      await subscription.unsubscribe();
+    }
+    log('', 'AVISOS APAGADOS', { muted: true });
+  } catch {}
+  setPush('off');
+}
+
+pushButton.addEventListener('click', () => {
+  sfx.click();
+  if (!pushSupported) return log('!', 'PARA RECIBIR AVISOS: COMPARTIR › AGREGAR A INICIO, Y ABRÍ SUPERVOZ DESDE AHÍ.');
+  if (pushButton.dataset.push === 'busy') return;
+  pushButton.dataset.push === 'on' ? disablePush() : enablePush();
+});
+
+// Con la app a la vista, las respuestas ya suenan: los avisos que quedaron en el centro
+// de notificaciones sobran (lo que llegó se recupera por la conexión con la Mac).
+async function clearNotifications() {
+  try {
+    for (const n of (await swRegistration?.getNotifications()) || []) n.close();
+  } catch {}
+}
+
+// Le avisa a la Mac que la app dejó de estar a la vista, para que mande push en vez de audio.
+// `keepalive` deja salir el pedido aunque iOS congele la página enseguida.
+function reportHidden() {
+  api('/api/presence', {
+    method: 'POST',
+    keepalive: true,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ visible: false }),
+  }).catch(() => {});
+}
+addEventListener('pagehide', reportHidden);
+
 // Mantiene la pantalla encendida: si el teléfono se bloquea, Safari corta la conexión.
 let wakeLock = null;
 async function requestWakeLock() {
@@ -747,10 +871,10 @@ async function requestWakeLock() {
   } catch {}
 }
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    requestWakeLock();
-    refreshChannels();
-  }
+  if (document.hidden) return reportHidden();
+  requestWakeLock();
+  refreshChannels();
+  clearNotifications();
 });
 
 if (!token) {
@@ -761,5 +885,6 @@ if (!token) {
   loadSamples();
   connect();
   refreshChannels();
+  initPush().then(clearNotifications);
   setInterval(refreshChannels, 10000);
 }

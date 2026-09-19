@@ -6,6 +6,7 @@ Walkie-talkie para hablarle a Claude Code desde el iPhone. Mantenés el botón, 
 iPhone (miniweb) ──audio──▶ server.js ──▶ whisper-server (voz a texto, local)
                                       └──▶ iTerm2: escribe y envía con Enter
 Claude Code ──hook Stop / PermissionRequest──▶ server.js ──say──▶ audio ──SSE──▶ iPhone
+                                                        └──Web Push──▶ iPhone bloqueado
 ```
 
 Nada sale de tu red salvo lo que Claude Code ya manda. La transcripción corre en la Mac con Whisper.
@@ -41,11 +42,23 @@ La primera vez macOS pide permiso de Automatización para que `node` controle iT
 - La **perilla** de arriba recarga la app.
 - **REPETIR** vuelve a leer la última respuesta, **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
 - La pantalla queda encendida mientras la app está abierta. Si el teléfono se bloquea, al volver se recupera lo que llegó mientras tanto.
+- **AVISOS** (arriba, junto a la perilla) activa las notificaciones push: con el teléfono bloqueado o la app en segundo plano, cada respuesta llega como "CLAUDE · proyecto" con el comienzo del texto, y los pedidos de permiso como "Claude necesita permiso para usar Bash". Al tocarla se abre la app. El piloto verde indica que están activas; tocando otra vez se apagan. Al activarlas llega un aviso de prueba.
+
+### Avisos push en el iPhone
+
+Requieren iOS 16.4 o más nuevo y la app **agregada a la pantalla de inicio** (en Safari común no aparecen). Abrí Supervoz desde el ícono, tocá AVISOS y aceptá el permiso. Si alguna vez lo rechazaste, se vuelve a habilitar en Ajustes › Notificaciones › Supervoz.
+
+- El aviso va solo al dispositivo que habló y solo si no tiene la app a la vista: con la app abierta ya suena el audio. La app avisa cuando pasa a segundo plano, y si ese aviso se pierde, a los 25 segundos sin noticias del teléfono se la da por oculta.
+- Al volver a la app se borran los avisos pendientes: lo que llegó se recupera en la pantalla.
+- Las claves VAPID y las suscripciones se guardan en `~/.supervoz/push.json` (se generan solas la primera vez). Si se borra ese archivo hay que volver a tocar AVISOS. `pushSubject` en la configuración es el contacto que va en la firma VAPID (Apple exige `mailto:` o `https:`).
+- El cifrado (RFC 8291) y la firma VAPID (RFC 8292) están hechos con `node:crypto`, sin dependencias.
 
 Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`) y velocidad (`rate`).
 
 ## Desarrollo
 
-`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) y del explorador de carpetas (que no se pueda salir de la raíz).
+`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso), del explorador de carpetas (que no se pueda salir de la raíz) y de Web Push (cifrado contra los vectores de la RFC 8291, JWT VAPID, suscripciones y a quién avisar).
+
+Para levantar una segunda instancia sin tocar la real, `SUPERVOZ_HOME=/otra/carpeta npm start` usa esa carpeta en lugar de `~/.supervoz` (con su propio `config.json`, otro `port` y otro `whisperPort`). Ojo: si le conectás un navegador, igual pinta la pestaña de iTerm2 del canal activo.
 
 Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar, `release.m4a` al soltar, `rx.m4a` cuando llega una respuesta.

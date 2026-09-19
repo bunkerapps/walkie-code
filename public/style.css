@@ -104,7 +104,29 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .brand-name { font-weight: 800; font-size: 26px; letter-spacing: 0.12em; color: #e2e5d8; }
 .brand-model { font-weight: 500; font-size: 12px; letter-spacing: 0.22em; color: var(--ink-dim); margin-top: 3px; }
 
-.faceplate-right { display: flex; align-items: center; gap: 14px; }
+.faceplate-right { display: flex; align-items: center; gap: 10px; }
+
+/* Tecla de avisos push: un interruptor chico con su propio piloto */
+.alerts {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px 0 7px;
+  border-radius: 13px;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  color: var(--ink-dim);
+  background: linear-gradient(180deg, #34382f, #1c1f19);
+  box-shadow: 0 2px 0 #0c0d0b, inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.alerts:active { transform: translateY(1px); box-shadow: 0 1px 0 #0c0d0b; }
+.alerts-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--led-off); box-shadow: inset 0 1px 1px rgba(0,0,0,0.7); }
+.alerts[data-push="on"] { color: var(--ink); }
+.alerts[data-push="on"] .alerts-dot { background: var(--rx); box-shadow: 0 0 6px var(--rx); }
+.alerts[data-push="busy"] .alerts-dot { background: var(--wait); animation: blink 600ms steps(2) infinite; }
+.alerts[data-push="na"] { opacity: 0.5; }
 
 /* Perilla de recarga: en la app de pantalla de inicio no hay botón del navegador */
 .knob {
