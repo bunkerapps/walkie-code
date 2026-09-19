@@ -15,6 +15,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=VT323&display=swap" rel="stylesheet">
   <!-- style.css es el mismo de Walkie-Code: se copia al instalar (ver deploy.sh). -->
   <link rel="stylesheet" href="style.css">
+  <script>
+    // iPhone con la app instalada: con la barra de estado translúcida, el 100 % de alto no cuenta la
+    // franja de la hora y abajo queda una banda negra. Se usa el alto real de la pantalla.
+    if (navigator.standalone) document.documentElement.style.setProperty('--app-height', `${screen.height}px`);
+  </script>
   <style>
     .lcd-state { font-size: 44px; }
     .ptt-label { font-size: 48px; }
