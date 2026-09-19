@@ -17,7 +17,7 @@ import { loadConfig, saveConfig } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer } from './lib/speech.js';
 import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
-import { listVoices } from './lib/voices.js';
+import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
 import { parseChannelCommand, findChannel, missSpeech } from './lib/commands.js';
 import { synthesize, getClip } from './lib/tts.js';
 import { isDictated } from './lib/voice-style.js';
@@ -455,10 +455,15 @@ async function handleOpen(req, res) {
 
 const RATE_LIMITS = [120, 300];
 
+// Además de las instaladas, la voz elegida en Ajustes del Sistema (la única vía a una voz de Siri).
+const systemVoice = { name: SYSTEM_VOICE, label: 'Voz del sistema', region: 'MAC', quality: 'sistema' };
+
+const voiceOptions = async () => [...(await listVoices(cfg.language)), systemVoice];
+
 const noticeSettings = () => ({ enabled: cfg.notices !== false, afterSeconds: clampSeconds(cfg.notifyAfterSeconds) });
 
 async function handleVoices(res) {
-  return json(res, 200, { voices: await listVoices(cfg.language), current: cfg.voice, rate: cfg.rate, notices: noticeSettings() });
+  return json(res, 200, { voices: await voiceOptions(), current: cfg.voice, rate: cfg.rate, notices: noticeSettings() });
 }
 
 // Prende o apaga los avisos de los otros canales y cambia el umbral. Se guarda en la configuración.
@@ -475,17 +480,28 @@ async function handleNotices(req, res) {
 // Cambia la voz o la velocidad, la guarda y devuelve una muestra para escucharla.
 async function handleVoice(req, res) {
   const { voice, rate } = await readJson(req);
-  const voices = await listVoices(cfg.language);
-  const chosen = voice ? voices.find((v) => v.name === voice) : voices.find((v) => v.name === cfg.voice);
-  if (!chosen) return json(res, 404, { error: 'Esa voz no está instalada en la Mac.' });
+  const chosen = voice && (await voiceOptions()).find((v) => v.name === voice);
+  if (voice && !chosen) return json(res, 404, { error: 'Esa voz no está instalada en la Mac.' });
 
-  cfg.voice = chosen.name;
+  if (chosen) cfg.voice = chosen.name;
   if (rate !== undefined) cfg.rate = Math.min(RATE_LIMITS[1], Math.max(RATE_LIMITS[0], Math.round(Number(rate)) || cfg.rate));
   saveConfig({ voice: cfg.voice, rate: cfg.rate });
   log(`= voz: ${cfg.voice} a ${cfg.rate} palabras por minuto`);
 
-  const sample = voice ? `Hola, soy ${chosen.label.replace(/\s*\(.*\)$/, '')}. Así te voy a leer las respuestas.` : 'Así voy a hablar ahora.';
+  const sample = !chosen ? 'Así voy a hablar ahora.'
+    : chosen === systemVoice ? 'Hola, soy la voz del sistema. Así te voy a leer las respuestas.'
+    : `Hola, soy ${chosen.label}. Así te voy a leer las respuestas.`;
   return json(res, 200, { current: cfg.voice, rate: cfg.rate, audio: await speak(sample) });
+}
+
+// Abre en la Mac el panel donde se descargan voces mejoradas y premium, y explica qué tocar.
+// No hay forma soportada de descargarlas por código: lo tiene que hacer Diego en Ajustes.
+async function handleInstallVoices(res) {
+  await openVoiceSettings();
+  log('= abriendo Ajustes para instalar voces');
+  const speech = 'Te abrí Ajustes en la Mac, en Lectura y voz. Tocá el menú Voz del sistema y elegí Administrar voces. ' +
+    'Buscá Español y descargá una voz mejorada o premium. Cuando termine, aparece sola en esta lista.';
+  return json(res, 200, { ok: true, audio: await speak(speech) });
 }
 
 // Nombre propio para la carpeta de un canal. Vacío = vuelve al nombre de la carpeta.
@@ -542,6 +558,7 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/voice') return await handleVoice(req, res);
     if (route === 'GET /api/notices') return json(res, 200, noticeSettings());
     if (route === 'POST /api/notices') return await handleNotices(req, res);
+    if (route === 'POST /api/voices/install') return await handleInstallVoices(res);
     if (route === 'POST /api/name') return await handleName(req, res);
     if (route === 'POST /api/open') return await handleOpen(req, res);
     if (route === 'POST /api/hook') return await handleHook(req, res);

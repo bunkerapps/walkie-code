@@ -803,51 +803,104 @@ $('reader-close').addEventListener('click', () => ($('reader').hidden = true));
 
 const voicesPanel = $('voices');
 const RATE_STEP = 20;
+// Mientras el panel está abierto se vuelve a pedir la lista: una voz recién descargada aparece sola.
+const VOICES_POLL_MS = 5000;
 let voiceState = null; // { voices, current, rate }
+let voicesTimer = 0;
 
+// Calidad de cada voz, de mejor a peor, como el medidor de señal de la radio.
+const QUALITY = {
+  premium: { section: 'PREMIUM', bars: '▮▮▮' },
+  mejorada: { section: 'MEJORADAS', bars: '▮▮▯' },
+  estandar: { section: 'ESTÁNDAR', bars: '▮▯▯' },
+  sistema: { section: 'AJUSTES DE LA MAC', bars: '' },
+};
+
+function voicesNote(text) {
+  $('voices-note').hidden = !text;
+  $('voices-note').textContent = text || '';
+}
+
+function listItem(className, text) {
+  const li = document.createElement('li');
+  li.className = className;
+  li.textContent = text;
+  return li;
+}
+
+function voiceButton(voice) {
+  const li = document.createElement('li');
+  const button = document.createElement('button');
+  button.type = 'button';
+  const tag = (className, text) => {
+    const span = document.createElement('span');
+    span.className = className;
+    span.textContent = text;
+    return span;
+  };
+  button.append(tag('name', voice.label.toUpperCase()));
+  const bars = QUALITY[voice.quality]?.bars;
+  if (bars) button.append(tag('quality', bars));
+  button.append(tag('tag', voice.region));
+  if (voice.name === voiceState.current) button.append(tag('current', '●'));
+  button.addEventListener('click', () => chooseVoice({ voice: voice.name }));
+  li.append(button);
+  return li;
+}
+
+// La lista llega ordenada de mejor a peor: se corta en secciones por calidad.
 function renderVoices() {
   if (!voiceState) return;
   $('rate-label').textContent = `VELOCIDAD ${voiceState.rate}`;
-  $('voices-list').replaceChildren(
-    ...voiceState.voices.map((voice) => {
-      const li = document.createElement('li');
-      const button = document.createElement('button');
-      button.type = 'button';
-      const name = document.createElement('span');
-      name.className = 'name';
-      name.textContent = voice.label;
-      const region = document.createElement('span');
-      region.className = 'tag';
-      region.textContent = voice.region;
-      button.append(name, region);
-      if (voice.name === voiceState.current) {
-        const mark = document.createElement('span');
-        mark.className = 'current';
-        mark.textContent = '●';
-        button.append(mark);
-      }
-      button.addEventListener('click', () => chooseVoice({ voice: voice.name }));
-      li.append(button);
-      return li;
-    }),
-  );
+  const items = [];
+  let section = null;
+  for (const voice of voiceState.voices) {
+    if (voice.quality !== section) {
+      section = voice.quality;
+      items.push(listItem('section', `— ${QUALITY[section]?.section || section.toUpperCase()} —`));
+    }
+    items.push(voiceButton(voice));
+  }
+  const good = voiceState.voices.some((v) => v.quality === 'premium' || v.quality === 'mejorada');
+  if (!good) items.unshift(listItem('empty', 'NO HAY VOCES MEJORADAS NI PREMIUM. INSTALALAS ABAJO.'));
+  $('voices-list').replaceChildren(...items);
+}
+
+// Trae la lista; si apareció una voz nueva, la avisa. Solo redibuja si algo cambió.
+async function refreshVoices() {
+  const res = await api('/api/voices');
+  const next = await res.json();
+  const before = voiceState ? new Set(voiceState.voices.map((v) => v.name)) : null;
+  const fresh = before ? next.voices.filter((v) => !before.has(v.name)) : [];
+  const changed = !voiceState || next.voices.length !== voiceState.voices.length || fresh.length || next.current !== voiceState.current;
+  voiceState = next;
+  if (changed) renderVoices();
+  renderNotices();
+  if (fresh.length) {
+    sfx.incoming();
+    voicesNote(`VOZ NUEVA: ${fresh.map((v) => v.label.toUpperCase()).join(', ')}`);
+  }
+}
+
+function stopVoicesPoll() {
+  clearInterval(voicesTimer);
+  voicesTimer = 0;
 }
 
 async function openVoices() {
   unlockAudio();
   voicesPanel.hidden = false;
-  const li = document.createElement('li');
-  li.className = 'empty';
-  li.textContent = 'CARGANDO…';
-  $('voices-list').replaceChildren(li);
+  voiceState = null;
+  voicesNote('');
+  $('voices-list').replaceChildren(listItem('empty', 'CARGANDO…'));
   try {
-    const res = await api('/api/voices');
-    voiceState = await res.json();
-    renderVoices();
+    await refreshVoices();
     renderNotices();
   } catch {
-    li.textContent = 'SIN CONEXIÓN CON LA MAC';
+    $('voices-list').replaceChildren(listItem('empty', 'SIN CONEXIÓN CON LA MAC'));
   }
+  stopVoicesPoll();
+  voicesTimer = setInterval(() => !document.hidden && refreshVoices().catch(() => {}), VOICES_POLL_MS);
 }
 
 async function chooseVoice(change) {
@@ -902,6 +955,21 @@ async function saveNotices(change) {
   }
 }
 
+// Abre en la Mac el panel de voces de Ajustes y explica por voz qué tocar.
+async function installVoices() {
+  unlockAudio();
+  sfx.click();
+  try {
+    const res = await api('/api/voices/install', { method: 'POST' });
+    const body = await res.json();
+    if (!res.ok) return fail((body.error || 'NO SE PUDO ABRIR AJUSTES').toUpperCase());
+    voicesNote('EN LA MAC: VOZ DEL SISTEMA → ADMINISTRAR VOCES… → ESPAÑOL → DESCARGÁ UNA MEJORADA O PREMIUM. APARECE SOLA ACÁ.');
+    play(body.audio, { squelch: false, rx: false });
+  } catch {
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+}
+
 function stepNotices(direction) {
   const current = voiceState?.notices?.afterSeconds;
   if (!current) return;
@@ -918,8 +986,10 @@ $('notices-up').addEventListener('click', () => stepNotices(1));
 $('voice-open').addEventListener('click', openVoices);
 $('voices-close').addEventListener('click', () => {
   voicesPanel.hidden = true;
+  stopVoicesPoll();
   stopPlayback();
 });
+$('voices-install').addEventListener('click', installVoices);
 $('rate-down').addEventListener('click', () => voiceState && chooseVoice({ rate: voiceState.rate - RATE_STEP }));
 $('rate-up').addEventListener('click', () => voiceState && chooseVoice({ rate: voiceState.rate + RATE_STEP }));
 
