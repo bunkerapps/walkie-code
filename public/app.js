@@ -1180,7 +1180,11 @@ function renderVoiceVolume() {
   $('voice-vol-level').textContent = `${Math.round(voiceVolume * 100)} %`;
 }
 
-// Cambia el volumen de la voz, lo guarda y repite la última respuesta para escucharlo.
+// Cambia el volumen de la voz, lo guarda y hace sonar una muestra para escucharlo.
+// La muestra es nueva cada vez: la última respuesta puede no estar (se recargó la app) o haber
+// vencido en la Mac, y entonces no sonaba nada y parecía que el control no andaba.
+let voicePreview = 0;
+
 function setVoiceVolume(value) {
   unlockAudio();
   voiceVolume = Math.round(Math.min(VOICE_VOL_MAX, Math.max(VOICE_VOL_MIN, value)) * 10) / 10;
@@ -1188,7 +1192,16 @@ function setVoiceVolume(value) {
     localStorage.setItem(VOICE_VOL_KEY, String(voiceVolume));
   } catch {}
   renderVoiceVolume();
-  if (lastClip) play(lastClip, { squelch: false });
+  sfx.click();
+  // Se espera a que termine de tocar para no generar una muestra por cada toque.
+  clearTimeout(voicePreview);
+  voicePreview = setTimeout(async () => {
+    try {
+      const res = await api('/api/voice', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const body = await res.json();
+      if (body.audio) play(body.audio, { squelch: false, rx: false });
+    } catch {}
+  }, 400);
 }
 
 $('voice-vol-down').addEventListener('click', () => setVoiceVolume(voiceVolume - VOICE_VOL_STEP));
