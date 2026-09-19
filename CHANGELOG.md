@@ -2,6 +2,16 @@
 
 All notable changes to Walkie-Code are documented here. The project follows [Semantic Versioning](https://semver.org).
 
+## [1.2.0] — 2026-09-19
+
+### Added
+
+- Replies from other channels no longer overlap. A short alert plays, the screen shows "MSJ CH03" and the answer waits: you hear it when you tune that channel (tap the alert, swipe or use your voice). A reply for the current channel that arrives while something is playing waits its turn.
+
+### Fixed
+
+- Replies and alerts now carry the channel's exact id. They were matched by project name, which broke when a channel was renamed or two names looked alike.
+
 ## [1.1.0] — 2026-09-19
 
 ### Changed
@@ -64,5 +74,6 @@ First official release: a push-to-talk walkie-talkie for Claude Code, from an iP
 
   See [SECURITY.md](SECURITY.md).
 
+[1.2.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.2.0
 [1.1.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.1.0
 [1.0.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.0.0
