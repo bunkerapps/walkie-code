@@ -32,11 +32,10 @@
         <span class="brand-model">CLV-1 · CLAUDE LINK</span>
       </div>
       <div class="faceplate-right">
-        <button type="button" class="side-key" id="photo-key" aria-label="Adjuntar una foto para Claude">FOTO</button>
-        <input type="file" id="photo-input" accept="image/*" hidden>
-        <button type="button" class="alerts settings-key" id="settings-key" aria-label="Ajustes de voz, volumen y avisos">
-          <span class="settings-gear" aria-hidden="true">⚙</span>AJUSTES
-        </button>
+        <!-- Arriba, lejos del pulgar: lo que se usa poco y ESC, que interrumpe a Claude y no conviene tocar sin querer. -->
+        <button type="button" class="top-key top-danger" id="escape" aria-label="Interrumpir a Claude (Escape)">ESC</button>
+        <button type="button" class="top-key top-icon" id="new" aria-label="Abrir Claude en una carpeta"><svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6"><path d="M12 5v14M5 12h14"/></svg></button>
+        <button type="button" class="top-key top-icon" id="settings-key" aria-label="Ajustes de voz, volumen y avisos"><svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
         <button type="button" class="knob" id="reload" aria-label="Recargar">↻</button>
         <span class="led" aria-hidden="true"></span>
       </div>
@@ -77,10 +76,11 @@
     </button>
 
     <nav class="keys">
+      <!-- Abajo, en la zona del pulgar: lo que se usa seguido. La cámara a la derecha, como en las apps de mensajes. -->
       <button type="button" class="key" id="replay">REPETIR</button>
       <button type="button" class="key" id="mute">SILENCIO</button>
-      <button type="button" class="key key-danger" id="escape">ESC</button>
-      <button type="button" class="key key-new" id="new" aria-label="Abrir Claude en una carpeta">＋</button>
+      <button type="button" class="key key-camera" id="photo-key" aria-label="Sacar o elegir una foto para Claude"><svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+      <input type="file" id="photo-input" accept="image/*" hidden>
     </nav>
 
     <a class="maker" href="https://bunkerapps.net" target="_blank" rel="noopener" aria-label="Hecho por BunkerApps">

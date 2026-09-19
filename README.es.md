@@ -67,7 +67,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 - **PTT:** mantener apretado, esperar el bip, hablar y soltar. Se envía solo.
 - Lo que dictás le llega a Claude con una instrucción extra para que **responda para escuchar**: corto, conversado, sin listas largas, tablas ni bloques de código (si hacen falta, los deja en la terminal y los menciona). Lo que tipeás en la Mac no cambia. Se apaga con `"voiceStyle": false`, y el texto de la instrucción está en `lib/voice-style.js`.
 - La respuesta suena **solo en el dispositivo que habló**. Si la web está abierta en otro lado, ahí solo se ve el texto.
-- **REPETIR** lee en voz alta el resumen del canal (lo último que se pidió y lo que respondió Claude), **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
+- **REPETIR** lee en voz alta el resumen del canal (lo último que se pidió y lo que respondió Claude) y **SILENCIO** corta la lectura; están abajo, en la zona del pulgar. Arriba, lejos del pulgar para no tocarla sin querer, **ESC** interrumpe a Claude.
 - Si Claude pide un **permiso** en el canal al que le hablaste, el walkie muestra qué quiere hacer (el comando o el archivo) con **APROBAR**, **SIEMPRE** (no vuelve a preguntar por eso en el proyecto) y **RECHAZAR**; también se contesta diciendo "sí" o "no". La respuesta vuelve por el hook como decisión oficial, sin tocar teclas en la Mac. Si nadie contesta en 2 minutos, el diálogo aparece en la Mac como siempre.
 
 ### Canales
@@ -93,7 +93,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 
 ### Fotos
 
-- **FOTO** saca una foto o elige una de la galería. El teléfono la achica a 1600 px y la sube, y se manda junto con la próxima transmisión. **ENVIAR SOLA** la manda sin hablar y **✕** la quita.
+- La **cámara** (abajo a la derecha) saca una foto o elige una de la galería. El teléfono la achica a 1600 px y la sube, y se manda junto con la próxima transmisión. **ENVIAR SOLA** la manda sin hablar y **✕** la quita.
 - En la terminal se escribe lo dictado más la ruta de la foto (`~/.walkie-code/uploads/…`), y Claude Code la abre desde ahí. La primera vez puede pedir permiso para leer esa carpeta; para que no pregunte, permití `Read(~/.walkie-code/uploads/**)` en tu configuración de Claude Code. Las fotos se borran a los 7 días.
 
 ### Voces

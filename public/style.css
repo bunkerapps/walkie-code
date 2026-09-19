@@ -455,8 +455,34 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
   transition: transform 60ms, box-shadow 60ms;
 }
 .key:active { transform: translateY(2px); box-shadow: 0 1px 0 #0c0d0b, inset 0 1px 0 rgba(255,255,255,0.05); }
-.key-danger { flex: 0 0 64px; color: #ff8a70; }
-.key-new { flex: 0 0 52px; font-size: 22px; letter-spacing: 0; color: var(--orange); }
+/* Cámara: redonda y a la derecha, como el botón de foto de las apps de mensajes. Naranja con una foto cargada. */
+.key-camera { flex: 0 0 62px; display: grid; place-items: center; letter-spacing: 0; }
+.key-camera .key-icon { width: 28px; height: 28px; }
+[data-photo="on"] .key-camera { color: var(--orange); box-shadow: 0 3px 0 #0c0d0b, 0 0 14px rgba(255, 91, 26, 0.45), inset 0 1px 0 rgba(255,255,255,0.08); }
+
+/* Teclas de la placa: ESC (roja), abrir proyecto y ajustes. Área táctil de 44 px aunque se vean más chicas. */
+.top-key {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 34px;
+  min-width: 34px;
+  padding: 0 10px;
+  border-radius: 17px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  color: var(--ink);
+  background: linear-gradient(180deg, #34382f, #1c1f19);
+  box-shadow: 0 3px 0 #0c0d0b, inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: transform 60ms, box-shadow 60ms;
+}
+.top-key::after { content: ''; position: absolute; inset: -5px; }
+.top-key:active { transform: translateY(2px); box-shadow: 0 1px 0 #0c0d0b; }
+.top-icon { padding: 0; width: 34px; }
+.top-icon .key-icon { width: 18px; height: 18px; }
+.top-icon#new { color: var(--orange); }
+.top-danger { color: #ff8a70; }
 
 /* ---------- Explorador de carpetas (pantalla LCD grande) ---------- */
 
