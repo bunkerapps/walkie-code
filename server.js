@@ -4,7 +4,8 @@
 //   iPhone (miniweb) --audio--> este servidor --> whisper-server (voz a texto)
 //                                             --> iTerm2 (escribe y envía en el canal elegido)
 //   Claude Code --hook Stop/PermissionRequest--> este servidor --say--> audio --SSE--> iPhone
-//   Claude Code --hook UserPromptSubmit--> este servidor: ¿lo dictó el teléfono? (estilo para voz)
+//   Claude Code --hook UserPromptSubmit--> este servidor: anota cuándo empezó el turno (avisos)
+//                                          y contesta si lo dictó el teléfono (estilo para voz)
 
 import http from 'node:http';
 import { spawn } from 'node:child_process';
@@ -19,6 +20,7 @@ import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices } from './lib/voices.js';
 import { synthesize, getClip } from './lib/tts.js';
 import { isDictated } from './lib/voice-style.js';
+import { decideNotice, noticeSpeech, durationLabel, projectFromCwd, clampSeconds } from './lib/notices.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -45,6 +47,12 @@ let selectedId = null;
 // Solo se leen en voz alta las respuestas de estas, y solo en el teléfono que habló.
 // `sent` es lo último que se dictó ahí, para reconocerlo cuando Claude Code lo reciba.
 const pending = new Map(); // tty -> { project, clientId, permission, sent: { text, at } | null }
+
+// Cuándo empezó el turno en curso de cada terminal (hook UserPromptSubmit), para medir cuánto duró.
+const turns = new Map(); // tty -> ms
+// Terminales que no están en `pending` y avisaron que esperan un permiso:
+// si se sintoniza ese canal, "sí" o "no" contestan el menú.
+const asking = new Set();
 
 const channelsNow = () => listChannels(cfg.names || {});
 
@@ -230,7 +238,9 @@ async function handleTalk(req, res) {
 
   // Si Claude está esperando un permiso, "sí" o "no" contestan el menú en vez de escribirse.
   const waiting = pending.get(active.tty);
-  const answer = waiting?.permission ? permissionAnswer(text) : null;
+  // También vale para un permiso avisado desde otro canal (`asking`).
+  const answer = waiting?.permission || asking.has(active.tty) ? permissionAnswer(text) : null;
+  asking.delete(active.tty);
 
   // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
   // y tiene que encontrar el texto dictado para pedir una respuesta apta para voz.
@@ -249,20 +259,32 @@ async function handleTalk(req, res) {
   return json(res, 200, { text, project: active.project, permission: answer });
 }
 
-// Lo llama hooks/claude-hook.js cuando Claude Code termina de responder o pide permiso.
+// Lo llama hooks/claude-hook.js cuando empieza un turno, cuando Claude Code termina de responder
+// o cuando pide permiso.
 async function handleHook(req, res) {
   const body = await readJson(req);
-  const waiting = pending.get(body.tty);
-  if (!waiting) return json(res, 200, { ignored: true });
-
-  // Claude Code recibió un prompt: se contesta rápido, sin consultar a iTerm2,
-  // porque el hook lo está esperando antes de que Claude empiece.
+  if (!body.tty) return json(res, 200, { ignored: true });
+  // Claude Code recibió un prompt: se anota cuándo empezó el turno y se contesta rápido,
+  // sin consultar a iTerm2, si lo dictó el teléfono (el hook lo está esperando).
   if (body.event === 'UserPromptSubmit') {
-    const dictated = isDictated(waiting.sent, body.prompt);
-    if (dictated) waiting.sent = null; // se usa una sola vez
-    if (dictated) log(`~ ${waiting.project}: pide respuesta para escuchar`);
+    turns.set(body.tty, Date.now());
+    asking.delete(body.tty);
+    const waiting = pending.get(body.tty);
+    const dictated = isDictated(waiting?.sent, body.prompt);
+    if (dictated) {
+      waiting.sent = null; // se usa una sola vez
+      log(`~ ${waiting.project}: pide respuesta para escuchar`);
+    }
     return json(res, 200, { dictated });
   }
+  const startedAt = turns.get(body.tty) ?? null;
+  if (body.event === 'Stop') {
+    turns.delete(body.tty);
+    asking.delete(body.tty);
+  }
+
+  const waiting = pending.get(body.tty);
+  if (!waiting) return json(res, 200, await sendNotice(body, startedAt));
 
   // Si la respuesta viene de un canal distinto al que está en pantalla, se anuncia de dónde viene.
   const { active } = await resolveChannels().catch(() => ({}));
@@ -281,6 +303,31 @@ async function handleHook(req, res) {
     log(`< ${waiting.project}: pide permiso (${body.tool || '?'})`);
   }
   return json(res, 200, { ok: true });
+}
+
+// Canal al que no se le habló desde el teléfono: si vale la pena, aviso corto a todos los teléfonos.
+async function sendNotice(body, startedAt) {
+  const notice = decideNotice({
+    event: body.event,
+    kind: body.kind,
+    pending: false,
+    startedAt,
+    enabled: cfg.notices,
+    afterSeconds: cfg.notifyAfterSeconds,
+  });
+  if (!notice) return { ignored: true };
+
+  const { channels } = await channelsNow().catch(() => ({ channels: [] }));
+  const project = channels.find((c) => c.tty === body.tty)?.project || projectFromCwd(body.cwd, cfg.names);
+  if (notice.kind === 'permission') asking.add(body.tty);
+
+  const speech = noticeSpeech(project, notice, body.tool);
+  // Sin teléfonos conectados no se genera el audio: al reconectar, el aviso viejo solo se muestra.
+  const audio = clients.size ? await speak(speech) : null;
+  const duration = durationLabel(notice.seconds);
+  broadcast('notice', { kind: notice.kind, text: body.text || speech, speech, project, duration, audio });
+  log(`! ${project}: ${notice.kind === 'permission' ? `pide permiso (${body.tool || '?'})` : `terminó (${duration})`}`);
+  return { notice: notice.kind };
 }
 
 async function handleSelect(req, res) {
@@ -339,8 +386,21 @@ async function handleOpen(req, res) {
 
 const RATE_LIMITS = [120, 300];
 
+const noticeSettings = () => ({ enabled: cfg.notices !== false, afterSeconds: clampSeconds(cfg.notifyAfterSeconds) });
+
 async function handleVoices(res) {
-  return json(res, 200, { voices: await listVoices(cfg.language), current: cfg.voice, rate: cfg.rate });
+  return json(res, 200, { voices: await listVoices(cfg.language), current: cfg.voice, rate: cfg.rate, notices: noticeSettings() });
+}
+
+// Prende o apaga los avisos de los otros canales y cambia el umbral. Se guarda en la configuración.
+async function handleNotices(req, res) {
+  const { enabled, afterSeconds } = await readJson(req);
+  if (enabled !== undefined) cfg.notices = Boolean(enabled);
+  if (afterSeconds !== undefined) cfg.notifyAfterSeconds = clampSeconds(afterSeconds, cfg.notifyAfterSeconds);
+  saveConfig({ notices: cfg.notices, notifyAfterSeconds: cfg.notifyAfterSeconds });
+  const settings = noticeSettings();
+  log(`= avisos: ${settings.enabled ? `sí, después de ${settings.afterSeconds} s` : 'no'}`);
+  return json(res, 200, settings);
 }
 
 // Cambia la voz o la velocidad, la guarda y devuelve una muestra para escucharla.
@@ -409,6 +469,8 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/folders') return await handleFolders(res, url);
     if (route === 'GET /api/voices') return await handleVoices(res);
     if (route === 'POST /api/voice') return await handleVoice(req, res);
+    if (route === 'GET /api/notices') return json(res, 200, noticeSettings());
+    if (route === 'POST /api/notices') return await handleNotices(req, res);
     if (route === 'POST /api/name') return await handleName(req, res);
     if (route === 'POST /api/open') return await handleOpen(req, res);
     if (route === 'POST /api/hook') return await handleHook(req, res);

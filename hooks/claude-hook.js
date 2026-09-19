@@ -53,6 +53,15 @@ function isToolResult(entry) {
   return Array.isArray(c) && c.some((part) => part.type === 'tool_result');
 }
 
+function post(cfg, body, timeout = TIMEOUT_MS) {
+  return fetch(`http://127.0.0.1:${cfg.port}/api/hook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Supervoz-Token': cfg.token },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeout),
+  });
+}
+
 async function main() {
   const input = JSON.parse(readFileSync(0, 'utf8') || '{}');
   const isPrompt = input.hook_event_name === 'UserPromptSubmit';
@@ -60,7 +69,6 @@ async function main() {
 
   const cfg = loadConfig({ create: false });
   if (!cfg.token) return;
-  if (isPrompt && cfg.voiceStyle === false) return;
 
   const body = { event: input.hook_event_name, tty: findTty(), cwd: input.cwd };
 
@@ -85,14 +93,11 @@ async function main() {
     return;
   }
 
-  const res = await fetch(`http://127.0.0.1:${cfg.port}/api/hook`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Supervoz-Token': cfg.token },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(isPrompt ? PROMPT_DEADLINE_MS - 300 : TIMEOUT_MS),
-  });
+  // En UserPromptSubmit el servidor anota que empezó un turno (para los avisos de tareas largas)
+  // y contesta si el prompt lo dictó el teléfono (para pedir una respuesta apta para voz).
+  const res = await post(cfg, body, isPrompt ? PROMPT_DEADLINE_MS - 300 : TIMEOUT_MS);
 
-  if (isPrompt && res.ok && (await res.json()).dictated) {
+  if (isPrompt && cfg.voiceStyle !== false && res.ok && (await res.json()).dictated) {
     // En macOS la escritura a un pipe es asíncrona: hay que esperarla antes del process.exit.
     await new Promise((r) => process.stdout.write(promptContextOutput(VOICE_STYLE), r));
   }

@@ -6,7 +6,7 @@ Walkie-talkie para hablarle a Claude Code desde el iPhone. Mantenés el botón, 
 iPhone (miniweb) ──audio──▶ server.js ──▶ whisper-server (voz a texto, local)
                                       └──▶ iTerm2: escribe y envía con Enter
 Claude Code ──hook Stop / PermissionRequest──▶ server.js ──say──▶ audio ──SSE──▶ iPhone
-Claude Code ──hook UserPromptSubmit──▶ server.js: ¿lo dictó el teléfono? ──▶ "respondé para escuchar"
+Claude Code ──hook UserPromptSubmit──▶ server.js: anota el inicio del turno y, si lo dictó el teléfono, pide "respondé para escuchar"
 ```
 
 Nada sale de tu red salvo lo que Claude Code ya manda. La transcripción corre en la Mac con Whisper.
@@ -39,15 +39,16 @@ La primera vez macOS pide permiso de Automatización para que `node` controle iT
 - La respuesta suena **solo en el dispositivo que habló**; si la web está abierta en otro lado, ahí solo se ve el texto. Si le hablaste a un canal y cambiaste a otro, la respuesta se anuncia con "Desde <proyecto>".
 - **Respuestas para escuchar**: lo que dictás desde el teléfono le llega a Claude con una instrucción extra para que conteste corto y conversacional, en tu idioma, sin listas largas, tablas ni bloques de código (si hacen falta, los deja en la terminal y los menciona). Lo que tipeás en la Mac no cambia: el hook `UserPromptSubmit` compara el prompt con lo último que se dictó en esa terminal. Si supervoz no responde en 1,5 s, el prompt sigue sin la instrucción. Se apaga con `"voiceStyle": false` y el texto de la instrucción está en `lib/voice-style.js`.
 - Si Claude pide un permiso, se escucha el aviso. Respondiendo "sí" o "dale" se aprueba, y con "no" se cancela.
+- **Avisos de otros canales**: si una sesión a la que no le hablaste desde el teléfono (por ejemplo, algo que lanzaste desde la Mac antes de irte) termina un turno que duró más de `notifyAfterSeconds` (60 por defecto), todos los teléfonos conectados suenan con un aviso corto ("Terminó superprecio") y el texto completo queda en la pantalla, para tocarlo y leerlo. Si Claude pide permiso en cualquier canal se avisa siempre ("superprecio necesita permiso para usar Bash"); sintonizando ese canal, "sí" o "no" lo contestan. Las respuestas cortas no avisan. El aviso no interrumpe: si estás transmitiendo o escuchando otra cosa, espera; los que llegan al reconectar después de 2 minutos solo se muestran. Se prenden, apagan y ajustan (de 30 s a 30 min) en el panel de VOZ.
 - Tocando el **parlante** (VOZ) se elige la voz de las respuestas entre las voces en español instaladas en la Mac, y su velocidad. Se guarda en la configuración.
 - La **perilla** de arriba recarga la app.
 - **REPETIR** vuelve a leer la última respuesta, **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
 - La pantalla queda encendida mientras la app está abierta. Si el teléfono se bloquea, al volver se recupera lo que llegó mientras tanto.
 
-Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`), velocidad (`rate`) y si lo dictado pide respuestas para escuchar (`voiceStyle`, por defecto `true`).
+Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`), velocidad (`rate`), si lo dictado pide respuestas para escuchar (`voiceStyle`, por defecto `true`) y avisos de otros canales (`notices`, `notifyAfterSeconds`).
 
 ## Desarrollo
 
-`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) del explorador de carpetas (que no se pueda salir de la raíz), del reconocimiento de prompts dictados y del instalador de hooks (idempotente, sin tocar hooks ajenos).
+`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso), del explorador de carpetas (que no se pueda salir de la raíz), del reconocimiento de prompts dictados, del instalador de hooks (idempotente, sin tocar hooks ajenos) y de cuándo avisar desde otros canales (`lib/notices.js`).
 
 Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar, `release.m4a` al soltar, `rx.m4a` cuando llega una respuesta.
