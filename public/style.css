@@ -560,3 +560,13 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Con FOTO, AVISOS, la perilla y la luz, la placa no entra en un iPhone: el subtítulo se va. */
+.brand-model { white-space: nowrap; }
+@media (max-width: 440px) {
+  .brand-model { display: none; }
+  .faceplate { padding: 0 2px; }
+  .faceplate-right { gap: 7px; }
+  .brand-name { font-size: 22px; letter-spacing: 0.08em; }
+  .knob { width: 36px; height: 36px; font-size: 20px; }
+}
