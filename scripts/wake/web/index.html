@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Walkie Wake</title>
+  <meta name="theme-color" content="#161814">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Walkie Wake">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=VT323&display=swap" rel="stylesheet">
+  <!-- style.css es el mismo de Walkie-Code: se copia al instalar (ver deploy.sh). -->
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .lcd-state { font-size: 44px; }
+    .ptt-label { font-size: 48px; }
+    [data-state="waiting"] .ptt-cap { filter: saturate(0.4) brightness(0.8); }
+    [data-state="waiting"] #state-label { animation: flash 900ms steps(2) infinite; }
+    [data-state="rx"] .lcd-signal i { background: var(--lcd-ink); animation: none; }
+    .wake-foot { text-align: center; font-weight: 700; font-size: 13px; letter-spacing: 0.22em; color: var(--ink-dim); }
+  </style>
+</head>
+<body>
+  <main class="radio" id="radio" data-state="idle" data-link="off">
+    <div class="antenna" aria-hidden="true"></div>
+
+    <header class="faceplate">
+      <div class="brand">
+        <span class="brand-name">WALKIE<span class="brand-code">CODE</span></span>
+        <span class="brand-model">CLV-1 · WAKE LINK</span>
+      </div>
+      <div class="faceplate-right">
+        <span class="led" aria-hidden="true"></span>
+      </div>
+    </header>
+
+    <section class="lcd" aria-live="polite">
+      <div class="lcd-top">
+        <span class="lcd-ch">MAC</span>
+        <span class="lcd-project"><span>ENLACE DE ENCENDIDO</span></span>
+        <span class="lcd-signal" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      </div>
+      <div class="lcd-state"><span id="state-label">BUSCANDO</span></div>
+      <div class="lcd-log" id="log"></div>
+    </section>
+
+    <button class="ptt" id="wake" type="button" aria-label="Despertar la Mac">
+      <span class="ptt-ring">
+        <span class="ptt-cap">
+          <span class="ptt-label">WAKE</span>
+          <span class="ptt-hint" id="hint">TOCÁ PARA DESPERTAR</span>
+        </span>
+      </span>
+    </button>
+
+    <p class="wake-foot">VÍA RELAY DE ENCENDIDO</p>
+  </main>
+
+  <script>
+    const WALKIE_URL = __WALKIE_URL__;
+    const radio = document.getElementById('radio');
+    const label = document.getElementById('state-label');
+    const hint = document.getElementById('hint');
+    const logEl = document.getElementById('log');
+    const button = document.getElementById('wake');
+    let busy = false;
+
+    function log(tag, text) {
+      const p = document.createElement('p');
+      p.innerHTML = `<b>${tag}</b>`;
+      p.append(text);
+      logEl.prepend(p);
+    }
+
+    function show(state, text, link) {
+      radio.dataset.state = state;
+      radio.dataset.link = link ? 'on' : 'off';
+      label.textContent = text;
+    }
+
+    async function awake() {
+      try {
+        const res = await fetch('status', { cache: 'no-store' });
+        return (await res.json()).awake;
+      } catch {
+        return false;
+      }
+    }
+
+    function enter() {
+      show('rx', 'DESPIERTA', true);
+      if (!WALKIE_URL) return log('✓', 'LA MAC ESTÁ DESPIERTA.');
+      log('▶', 'ABRIENDO WALKIE-CODE…');
+      location.replace(WALKIE_URL);
+    }
+
+    async function check() {
+      if (await awake()) return enter();
+      show('idle', 'DORMIDA', false);
+      log('z', 'LA MAC DUERME. TOCÁ WAKE.');
+    }
+
+    button.addEventListener('click', async () => {
+      if (busy) return;
+      busy = true;
+      button.classList.add('pressed');
+      setTimeout(() => button.classList.remove('pressed'), 160);
+      navigator.vibrate?.(30);
+      show('waiting', 'DESPERTANDO', false);
+      hint.textContent = 'ESPERANDO RESPUESTA';
+      try {
+        const res = await fetch('wake', { method: 'POST' });
+        if (!res.ok) throw new Error();
+        log('↑', 'PAQUETE ENVIADO.');
+        for (let i = 0; i < 20; i++) {
+          await new Promise((done) => setTimeout(done, 3000));
+          if (await awake()) return enter();
+        }
+        show('error', 'SIN RESPUESTA', false);
+        log('!', 'LA MAC NO RESPONDIÓ. PROBÁ DE NUEVO.');
+      } catch {
+        show('error', 'ERROR', false);
+        log('!', 'NO SE PUDO ENVIAR EL PAQUETE.');
+      }
+      hint.textContent = 'TOCÁ PARA DESPERTAR';
+      busy = false;
+    });
+
+    check();
+  </script>
+</body>
+</html>

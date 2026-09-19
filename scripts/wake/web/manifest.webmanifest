@@ -1,0 +1,15 @@
+{
+  "name": "Walkie Wake",
+  "short_name": "Walkie Wake",
+  "description": "Despierta la Mac de Walkie-Code",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0c0a",
+  "theme_color": "#161814",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png" }
+  ]
+}

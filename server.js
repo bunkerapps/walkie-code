@@ -10,7 +10,7 @@
 
 import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
@@ -692,13 +692,34 @@ async function serveStatic(res, pathname) {
   }
 }
 
+// Si la Mac se despertó a medias (Wake-on-LAN por Wi-Fi solo da un DarkWake), el primer pedido
+// del teléfono le avisa a macOS que hay alguien: caffeinate -u declara actividad y la despierta del todo.
+let lastUserWake = 0;
+function declareUserActivity() {
+  const now = Date.now();
+  if (now - lastUserWake < 30_000) return;
+  lastUserWake = now;
+  spawn('caffeinate', ['-u', '-t', '5'], { stdio: 'ignore' }).on('error', () => {});
+}
+
+// Para el relay de Wake-on-LAN: en un DarkWake la Mac contesta por red pero sin gráficos,
+// así que "despierta de verdad" es tener Graphics entre las capacidades del sistema.
+function fullyAwake() {
+  return new Promise((resolve) => {
+    execFile('pmset', ['-g', 'systemstate'], (err, out) => resolve(!err && /Capabilities are:.*\bGraphics\b/.test(out)));
+  });
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const route = `${req.method} ${url.pathname}`;
   try {
     if (!allowedHost(req)) return json(res, 421, { error: 'Host no permitido.' });
     if (!url.pathname.startsWith('/api/')) return await serveStatic(res, url.pathname);
+    // Sin token: el relay no lo tiene, y solo revela si la Mac está despierta.
+    if (route === 'GET /api/awake') return json(res, 200, { awake: await fullyAwake() });
     if (!authorized(req, url)) return json(res, 401, { error: 'Token inválido.' });
+    declareUserActivity();
     // Cualquier pedido del teléfono (salvo el aviso de que se ocultó) prueba que la app está a la vista.
     if (route !== 'POST /api/presence') presence.touch(req.headers['x-walkie-client']);
 
