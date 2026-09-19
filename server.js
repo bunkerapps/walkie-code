@@ -16,7 +16,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/speech.js';
-import { recapOf, newestTranscript } from './lib/transcript.js';
+import { recapOf, newestTranscript, readTail } from './lib/transcript.js';
+import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
 import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
@@ -373,6 +374,7 @@ async function handleHook(req, res) {
   const body = await readJson(req);
   if (!body.tty) return json(res, 200, { ignored: true });
   if (body.transcript) transcripts.set(body.tty, body.transcript);
+  if (body.event === 'StopFailure') return json(res, 200, await handleFailure(body));
   // Claude Code recibió un prompt: se anota cuándo empezó el turno y se contesta rápido,
   // sin consultar a iTerm2, si lo dictó el teléfono (el hook lo está esperando).
   if (body.event === 'UserPromptSubmit') {
@@ -443,6 +445,40 @@ async function sendNotice(body, startedAt) {
     : pushMessage({ kind: 'reply', text: `Terminó, después de ${duration.toLowerCase()}. ${body.text || ''}`, project }));
   log(`! ${project}: ${notice.kind === 'permission' ? `pide permiso (${body.tool || '?'})` : `terminó (${duration})`}`);
   return { notice: notice.kind };
+}
+
+// El turno terminó por un error de la API. El límite de uso se avisa a todos los teléfonos (es de toda
+// la cuenta, una vez cada 10 minutos); los otros errores, solo al que le habló a ese canal.
+const LIMIT_NOTICE_EVERY_MS = 10 * 60 * 1000;
+let lastLimitNotice = 0;
+
+async function handleFailure(body) {
+  const waiting = pending.get(body.tty);
+  pending.delete(body.tty);
+  turns.delete(body.tty);
+  asking.delete(body.tty);
+
+  const limit = body.error === 'rate_limit';
+  if (!limit && !waiting) return { ignored: true };
+  if (limit && !waiting && Date.now() - lastLimitNotice < LIMIT_NOTICE_EVERY_MS) return { ignored: true };
+  if (limit) lastLimitNotice = Date.now();
+
+  const { channels } = await channelsNow().catch(() => ({ channels: [] }));
+  const project = waiting?.project || channels.find((c) => c.tty === body.tty)?.project || projectFromCwd(body.cwd, cfg.names);
+  const tail = limit && body.transcript ? await readTail(body.transcript, 64 * 1024).catch(() => '') : '';
+  const reset = resetTime(limitMessage(tail));
+  const speech = failureSpeech(body.error, project, reset);
+
+  const audio = clients.size ? await speak(speech) : null;
+  broadcast('notice', { kind: limit ? 'limit' : 'error', text: speech, speech, project, audio, reset, to: waiting?.clientId });
+  notifyPush(limit ? null : waiting?.clientId, {
+    title: limit ? 'CLAUDE · LÍMITE DE USO' : `CLAUDE · ${project}`,
+    body: speech,
+    tag: limit ? 'supervoz-limit' : `supervoz-${project}`,
+    url: '/',
+  });
+  log(`x ${project}: ${body.error}${reset ? ` (se renueva ${reset})` : ''}`);
+  return { notice: limit ? 'limit' : 'error' };
 }
 
 // Sintoniza un canal (deslizando o por voz): lo marca en la Mac y devuelve la pantalla con el anuncio.

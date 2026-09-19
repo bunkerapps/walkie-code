@@ -82,6 +82,9 @@ async function main() {
       body.text = lastAssistantText(input.transcript_path);
       if (!body.text) await new Promise((r) => setTimeout(r, 150));
     }
+  } else if (body.event === 'StopFailure') {
+    // El turno terminó por un error de la API (límite de uso, sobrecarga…): Claude ya no va a responder.
+    body.error = input.error_type || 'unknown';
   } else if (body.event === 'PermissionRequest') {
     body.kind = 'permission';
     body.tool = input.tool_name || '';

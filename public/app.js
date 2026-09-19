@@ -1076,9 +1076,14 @@ const noticeQueue = [];
 const audioBusy = () =>
   ['arming', 'tx', 'processing', 'rx'].includes(state) || Date.now() < playStartsAt + 300 || (!player.paused && !player.ended);
 
+const NOTICE_LABELS = { permission: 'PERMISO', limit: 'LÍMITE', error: 'ERROR' };
+
 function onNotice(e) {
   const notice = JSON.parse(e.data);
-  const who = `${notice.kind === 'permission' ? 'PERMISO' : 'AVISO'} ${notice.project.toUpperCase()}`;
+  // Límite de uso o error de la API: Claude ya no va a responder, el walkie deja de esperar.
+  if ((notice.kind === 'limit' || notice.kind === 'error') && state === 'waiting') setState('idle');
+  if (notice.to && notice.to !== clientId && notice.kind === 'error') return;
+  const who = `${NOTICE_LABELS[notice.kind] || 'AVISO'} ${notice.project.toUpperCase()}`;
   log(notice.duration ? `${who} · ${notice.duration}` : who, notice.text);
   // Los que se recuperan al reconectar ya pasaron: solo se muestran.
   if (!notice.audio || Date.now() - notice.at > NOTICE_FRESH_MS) return;
