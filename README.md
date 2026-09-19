@@ -37,15 +37,24 @@ La primera vez macOS pide permiso de Automatización para que `node` controle iT
 - Tocando un mensaje de la pantalla se abre completo, con scroll. Mientras Claude piensa, la pantalla muestra el mismo spinner que Claude Code.
 - La respuesta suena **solo en el dispositivo que habló**; si la web está abierta en otro lado, ahí solo se ve el texto. Si le hablaste a un canal y cambiaste a otro, la respuesta se anuncia con "Desde <proyecto>".
 - Si Claude pide un permiso, se escucha el aviso. Respondiendo "sí" o "dale" se aprueba, y con "no" se cancela.
-- Tocando el **parlante** (VOZ) se elige la voz de las respuestas entre las voces en español instaladas en la Mac, y su velocidad. Se guarda en la configuración.
+- Tocando el **parlante** (VOZ) se elige la voz de las respuestas entre las voces en español instaladas en la Mac, y su velocidad. Se guarda en la configuración. La lista va de mejor a peor calidad (▮▮▮ premium, ▮▮▯ mejorada, ▮▯▯ estándar) y al final está **VOZ DEL SISTEMA**, que usa la voz que esté elegida en Ajustes de la Mac.
+- **INSTALAR MÁS VOCES** abre en la Mac *Ajustes del Sistema → Accesibilidad → Lectura y voz* y te dice por voz qué tocar: menú *Voz del sistema* → *Administrar voces…* → Español → descargar una voz mejorada o premium. Mientras el panel está abierto la lista se refresca sola, así que la voz nueva aparece cuando termina de bajar.
 - La **perilla** de arriba recarga la app.
 - **REPETIR** vuelve a leer la última respuesta, **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
 - La pantalla queda encendida mientras la app está abierta. Si el teléfono se bloquea, al volver se recupera lo que llegó mientras tanto.
 
-Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`) y velocidad (`rate`).
+Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`; `"(sistema)"` = la de Ajustes) y velocidad (`rate`).
+
+### Voces mejoradas y premium
+
+- Se descargan solo desde Ajustes: macOS no tiene una forma soportada de bajarlas por línea de comandos (`say` no descarga, `softwareupdate` no las maneja, y el catálogo de `/System/Library/AssetsV2/com_apple_MobileAsset_VoiceServices_*` se usa solamente a través de frameworks privados).
+- Una vez instaladas, `say -v '?'` las lista como `Paulina (Mejorada)` o `Mónica (Premium)` (`Enhanced` si la Mac está en inglés), y supervoz las detecta por ese sufijo.
+- Las voces de **Siri** no están ni en `say -v` ni en `AVSpeechSynthesizer`. La única vía es elegir una como voz del sistema en Ajustes y usar **VOZ DEL SISTEMA** en el walkie (experimental: `say` sin `-v`).
+- Si la voz guardada se desinstala, `say` no falla: lee con la voz del sistema.
+- No se agregó AVSpeechSynthesizer como motor: en esta Mac ve las mismas voces que `say`, y la Voz personal le queda denegada a un proceso de línea de comandos.
 
 ## Desarrollo
 
-`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) y del explorador de carpetas (que no se pueda salir de la raíz).
+`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso), del explorador de carpetas (que no se pueda salir de la raíz) y de las voces (parseo de `say -v '?'`, calidades y orden).
 
 Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar, `release.m4a` al soltar, `rx.m4a` cuando llega una respuesta.
