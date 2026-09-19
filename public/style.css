@@ -102,6 +102,8 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 
 .brand { display: flex; flex-direction: column; line-height: 1; }
 .brand-name { font-weight: 800; font-size: 26px; letter-spacing: 0.12em; color: #e2e5d8; }
+.brand-name { display: flex; flex-direction: column; line-height: 0.9; }
+.brand-code { font-size: 0.5em; letter-spacing: 0.42em; color: var(--orange); margin-top: 3px; }
 .brand-model { font-weight: 500; font-size: 12px; letter-spacing: 0.22em; color: var(--ink-dim); margin-top: 3px; }
 
 .faceplate-right { display: flex; align-items: center; gap: 10px; }

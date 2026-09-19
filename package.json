@@ -1,9 +1,23 @@
 {
   "name": "walkie-code",
   "version": "0.1.0",
-  "description": "Walkie-talkie web para dictarle por voz a Claude Code en iTerm2 desde el iPhone",
+  "description": "Push-to-talk walkie-talkie for Claude Code: talk from your iPhone, hear the answers back",
+  "license": "MIT",
+  "author": "Diego Pacheco (BunkerApps)",
+  "keywords": [
+    "claude-code",
+    "voice",
+    "push-to-talk",
+    "walkie-talkie",
+    "whisper",
+    "iterm2",
+    "pwa"
+  ],
   "type": "module",
   "private": true,
+  "os": [
+    "darwin"
+  ],
   "bin": {
     "walkie-code": "./server.js"
   },
