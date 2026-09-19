@@ -557,6 +557,11 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 [data-state="waiting"] .lcd-spinner { display: inline-block; }
 [data-state="waiting"] .lcd-meter { display: none; }
 
+/* Volumen de cada efecto (se guarda en el teléfono) */
+.fx { display: flex; flex-direction: column; gap: 6px; }
+.fx[hidden] { display: none; }
+.fx-level { font-size: 18px; letter-spacing: 0.02em; min-width: 5.5em; text-align: right; }
+
 @media (max-height: 700px) {
   .radio { gap: 10px; padding-top: 14px; }
   .lcd { min-height: 140px; }

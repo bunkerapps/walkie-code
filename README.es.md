@@ -98,6 +98,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 
 - Tocando el **parlante** (VOZ) se elige la voz y la velocidad, entre las voces instaladas en la Mac y ordenadas por calidad (premium, mejorada, estándar). Al final está **VOZ DEL SISTEMA**, la que esté elegida en Ajustes.
 - **INSTALAR MÁS VOCES** abre en la Mac *Ajustes del Sistema › Accesibilidad › Lectura y voz* y te dice qué tocar. macOS no permite descargar voces por programa: se bajan a mano desde *Voz del sistema › Administrar voces…*, y aparecen solas en la lista.
+- **VOLUMEN DE EFECTOS**, en el mismo panel, ajusta por separado el sonido de apretar, soltar, la respuesta y los avisos (de mudo a 150 %). Se guarda en cada teléfono.
 - Las voces de Siri no están disponibles para `say`. La única vía es elegir una como voz del sistema y usar VOZ DEL SISTEMA (experimental).
 
 ## Configuración

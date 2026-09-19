@@ -254,7 +254,7 @@ function beep(notes, volume = 0.12) {
   }
 }
 
-function squelch(dur = 0.22) {
+function squelch(dur = 0.22, level = 1) {
   const ac = audioCtx();
   const buffer = ac.createBuffer(1, ac.sampleRate * dur, ac.sampleRate);
   const data = buffer.getChannelData(0);
@@ -266,11 +266,23 @@ function squelch(dur = 0.22) {
   band.type = 'bandpass';
   band.frequency.value = 1800;
   band.Q.value = 0.7;
-  gain.gain.setValueAtTime(0.25, ac.currentTime);
+  gain.gain.setValueAtTime(Math.max(0.0001, 0.25 * level), ac.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
   src.connect(band).connect(gain).connect(ac.destination);
   src.start();
 }
+
+// Volumen de cada efecto, de 0 a 150 %, guardado en este teléfono (cada dispositivo suena distinto).
+const FX = [['ptt', 'APRETAR'], ['release', 'SOLTAR'], ['rx', 'RESPUESTA'], ['notice', 'AVISOS']];
+const FX_KEY = 'walkie-code-fx';
+const fxVolume = (() => {
+  try {
+    return { ptt: 1, release: 1, rx: 1, notice: 1, ...JSON.parse(localStorage.getItem(FX_KEY) || '{}') };
+  } catch {
+    return { ptt: 1, release: 1, rx: 1, notice: 1 };
+  }
+})();
+const vol = (name) => fxVolume[name] ?? 1;
 
 // Sonidos grabados del equipo (public/sounds). Si todavía no cargaron, se sintetizan.
 const samples = {};
@@ -290,19 +302,21 @@ function playSample(name) {
   if (!buffer) return false;
   const ac = audioCtx();
   const src = ac.createBufferSource();
+  const gain = ac.createGain();
+  gain.gain.value = vol(name);
   src.buffer = buffer;
-  src.connect(ac.destination);
+  src.connect(gain).connect(ac.destination);
   src.start();
   return true;
 }
 
 const sfx = {
-  txStart: () => playSample('ptt') || beep([[1250, 0.07]]),
-  release: () => playSample('release') || beep([[1500, 0.07], [1050, 0.1]]),
+  txStart: () => playSample('ptt') || beep([[1250, 0.07]], 0.12 * vol('ptt')),
+  release: () => playSample('release') || beep([[1500, 0.07], [1050, 0.1]], 0.12 * vol('release')),
   click: () => beep([[2200, 0.02]], 0.06),
-  incoming: () => playSample('rx') || squelch(),
+  incoming: () => playSample('rx') || squelch(0.22, vol('rx')),
   error: () => beep([[320, 0.14], [220, 0.2]]),
-  notice: () => beep([[988, 0.09], [1319, 0.18]], 0.08),
+  notice: () => vol('notice') > 0 && beep([[988, 0.09], [1319, 0.18]], 0.08 * vol('notice')),
 };
 
 // En iOS, con el micrófono abierto el audio sale por el auricular y no por el parlante.
@@ -1039,6 +1053,54 @@ function stepNotices(direction) {
 $('notices-toggle').addEventListener('click', () => voiceState?.notices && saveNotices({ enabled: !voiceState.notices.enabled }));
 $('notices-down').addEventListener('click', () => stepNotices(-1));
 $('notices-up').addEventListener('click', () => stepNotices(1));
+
+const FX_STEP = 0.1;
+const FX_MAX = 1.5;
+const fxBar = (v) => '▮'.repeat(Math.round(v * 5)).padEnd(Math.round(FX_MAX * 5), '▯');
+
+function renderFx() {
+  $('fx').replaceChildren(...FX.map(([name, label]) => {
+    const row = document.createElement('div');
+    row.className = 'rate';
+    const down = document.createElement('button');
+    const up = document.createElement('button');
+    const text = document.createElement('span');
+    const level = document.createElement('span');
+    down.type = up.type = 'button';
+    down.className = up.className = 'picker-btn';
+    down.textContent = '−';
+    up.textContent = '＋';
+    down.setAttribute('aria-label', `Bajar ${label.toLowerCase()}`);
+    up.setAttribute('aria-label', `Subir ${label.toLowerCase()}`);
+    text.className = 'rate-label';
+    text.textContent = label;
+    level.className = 'fx-level';
+    level.textContent = vol(name) === 0 ? 'MUDO' : fxBar(vol(name));
+    down.addEventListener('click', () => setFx(name, vol(name) - FX_STEP));
+    up.addEventListener('click', () => setFx(name, vol(name) + FX_STEP));
+    row.append(down, text, level, up);
+    return row;
+  }));
+}
+
+// Cambia el volumen de un efecto, lo guarda y lo hace sonar para escucharlo.
+function setFx(name, value) {
+  unlockAudio();
+  fxVolume[name] = Math.round(Math.min(FX_MAX, Math.max(0, value)) * 10) / 10;
+  try {
+    localStorage.setItem(FX_KEY, JSON.stringify(fxVolume));
+  } catch {}
+  renderFx();
+  ({ ptt: sfx.txStart, release: sfx.release, rx: sfx.incoming, notice: sfx.notice })[name]();
+}
+
+$('fx-toggle').addEventListener('click', () => {
+  const open = $('fx').hidden;
+  $('fx').hidden = !open;
+  $('fx-toggle').textContent = open ? '▾' : '▸';
+  $('fx-toggle').setAttribute('aria-expanded', String(open));
+  if (open) renderFx();
+});
 
 $('voice-open').addEventListener('click', openVoices);
 $('voices-close').addEventListener('click', () => {
