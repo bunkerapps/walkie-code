@@ -120,6 +120,34 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 }
 .knob:active { transform: rotate(90deg) translateY(1px); }
 
+/* Tecla lateral para adjuntar una foto: se prende en naranja mientras hay una cargada */
+.side-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px 0 10px;
+  border-radius: 17px;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.18em;
+  color: var(--ink);
+  background: linear-gradient(180deg, #34382f, #1c1f19);
+  box-shadow: 0 3px 0 #0c0d0b, inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: transform 60ms, box-shadow 60ms;
+}
+.side-key::before {
+  content: '';
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0.8;
+}
+.side-key:active { transform: translateY(2px); box-shadow: 0 1px 0 #0c0d0b, inset 0 1px 0 rgba(255,255,255,0.05); }
+[data-photo="on"] .side-key { color: var(--orange); }
+[data-photo="on"] .side-key::before { background: currentColor; box-shadow: 0 0 8px var(--orange); }
+
 .led {
   width: 14px;
   height: 14px;
@@ -201,6 +229,45 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .lcd-meter { display: flex; gap: 3px; height: 22px; align-items: flex-end; }
 .lcd-meter i { width: 6px; height: 100%; background: var(--lcd-ghost); }
 .lcd-meter i.on { background: var(--lcd-ink); }
+
+/* Foto cargada: viaja con la próxima transmisión */
+.lcd-attach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 5px;
+  font-size: 22px;
+  line-height: 1;
+  border-bottom: 2px solid var(--lcd-ghost);
+}
+.lcd-attach[hidden] { display: none; }
+.lcd-thumb {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border: 2px solid var(--lcd-ink);
+  border-radius: 2px;
+  /* Se ve "impresa" en la pantalla, como el resto de la LCD */
+  filter: grayscale(1) contrast(1.2);
+  mix-blend-mode: multiply;
+}
+.lcd-thumb:not([src]) { visibility: hidden; }
+.lcd-attach-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lcd-attach-btn {
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 7px;
+  font-family: var(--lcd-font);
+  font-size: 20px;
+  color: var(--lcd);
+  background: var(--lcd-ink);
+  border-radius: 3px;
+}
+.lcd-attach-btn:active { opacity: 0.7; }
+.lcd-attach-btn:disabled { opacity: 0.3; }
+.lcd-attach.busy .lcd-attach-label { animation: flash 900ms steps(2) infinite; }
+@keyframes flash { 50% { opacity: 0.35; } }
 
 .lcd-log {
   flex: 1;

@@ -66,7 +66,12 @@ function setState(next) {
   state = next;
   radio.dataset.state = next;
   $('state-label').textContent = STATE_LABELS[next] || next.toUpperCase();
-  $('ptt-hint').textContent = next === 'tx' ? 'SOLTÁ PARA ENVIAR' : 'MANTENÉ PARA HABLAR';
+  renderHint();
+}
+
+function renderHint() {
+  const hint = state === 'tx' ? 'SOLTÁ PARA ENVIAR' : 'MANTENÉ PARA HABLAR';
+  $('ptt-hint').textContent = photo ? `${hint} + FOTO` : hint;
 }
 
 function log(who, text, { muted = false } = {}) {
@@ -426,19 +431,150 @@ function startMeter() {
 
 async function send(blob) {
   setState('processing');
+  // Si hay una foto cargada, viaja con esta transmisión (se espera a que termine de subir).
+  const sent = photo;
+  const imageId = sent ? await sent.ready.catch(() => null) : null;
+  if (sent && !imageId) return fail('LA FOTO NO SE SUBIÓ. NO SE ENVIÓ NADA');
   try {
-    const res = await api('/api/talk', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      if (body.text) log('VOS', body.text, { muted: true });
-      return fail((body.error || `ERROR ${res.status}`).toUpperCase());
-    }
-    log('VOS', body.permission ? `${body.text} (permiso)` : body.text);
-    setState('waiting');
+    const headers = { 'Content-Type': blob.type, ...(imageId && { 'X-Supervoz-Image': imageId }) };
+    await afterSend(await api('/api/talk', { method: 'POST', headers, body: blob }), sent);
   } catch {
     fail('SIN CONEXIÓN CON LA MAC');
   }
 }
+
+async function afterSend(res, sent) {
+  const body = await res.json().catch(() => ({}));
+  // 410: la foto ya no está en la Mac; no tiene sentido dejarla cargada.
+  if (res.status === 410 && photo === sent) clearPhoto();
+  if (!res.ok) {
+    if (body.text) log('VOS', body.text, { muted: true });
+    return fail((body.error || `ERROR ${res.status}`).toUpperCase());
+  }
+  if (body.image && photo === sent) clearPhoto();
+  const text = body.image ? `📎 ${body.text}` : body.text;
+  log('VOS', body.permission ? `${text} (permiso)` : text);
+  setState('waiting');
+}
+
+// ---------- Foto para Claude ----------
+
+// Se achica en el teléfono: una foto del iPhone pesa varios MB y Claude no necesita más de 1600 px.
+const PHOTO_MAX_SIDE = 1600;
+const PHOTO_QUALITY = 0.82;
+const attachEl = $('attach');
+let photo = null; // { ready: Promise<id>, thumb: objectURL }
+
+async function shrinkPhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(img.naturalWidth * scale);
+    canvas.height = Math.round(img.naturalHeight * scale);
+    const g = canvas.getContext('2d');
+    // Fondo blanco: un PNG con transparencia en JPEG quedaría negro.
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, canvas.width, canvas.height);
+    g.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', PHOTO_QUALITY));
+    if (!blob) throw new Error('no se pudo comprimir');
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function uploadPhoto(blob) {
+  const res = await api('/api/image', {
+    method: 'POST',
+    headers: { 'Content-Type': blob.type || 'application/octet-stream' },
+    body: blob,
+  }).catch(() => {
+    throw new Error('SIN CONEXIÓN CON LA MAC');
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `ERROR ${res.status}`);
+  return body.id;
+}
+
+function renderPhoto(label = 'FOTO LISTA', busy = false) {
+  radio.dataset.photo = photo ? 'on' : 'off';
+  attachEl.hidden = !photo;
+  attachEl.classList.toggle('busy', busy);
+  $('attach-label').textContent = label;
+  $('attach-send').disabled = busy;
+  if (photo?.thumb) $('attach-thumb').src = photo.thumb;
+  else $('attach-thumb').removeAttribute('src');
+  renderHint();
+}
+
+function clearPhoto() {
+  if (photo?.thumb) URL.revokeObjectURL(photo.thumb);
+  photo = null;
+  renderPhoto();
+}
+
+// Se sube apenas se elige; el PTT (o ENVIAR SOLA) después solo manda el id.
+function attachPhoto(file) {
+  clearPhoto();
+  const current = { thumb: null };
+  photo = current;
+  renderPhoto('PREPARANDO…', true);
+  current.ready = (async () => {
+    const blob = await shrinkPhoto(file).catch(() => file);
+    if (photo !== current) throw new Error('descartada');
+    current.thumb = URL.createObjectURL(blob);
+    renderPhoto('SUBIENDO…', true);
+    const id = await uploadPhoto(blob);
+    if (photo === current) renderPhoto();
+    return id;
+  })();
+  current.ready.catch((err) => {
+    if (photo !== current) return;
+    clearPhoto();
+    fail(`FOTO: ${err.message.toUpperCase()}`);
+  });
+}
+
+// La foto sola, sin dictar nada: el servidor le pone el texto por defecto.
+async function sendPhotoAlone() {
+  if (!photo || ['arming', 'tx', 'processing'].includes(state)) return;
+  unlockAudio();
+  stopPlayback();
+  sfx.click();
+  const sent = photo;
+  setState('processing');
+  const image = await sent.ready.catch(() => null);
+  if (!image) return state === 'processing' && setState('idle');
+  try {
+    await afterSend(await api('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image }),
+    }), sent);
+  } catch {
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+}
+
+$('photo-key').addEventListener('click', () => {
+  unlockAudio();
+  $('photo-input').click();
+});
+$('photo-input').addEventListener('change', (e) => {
+  const [file] = e.target.files;
+  e.target.value = '';
+  if (file) attachPhoto(file);
+});
+$('attach-send').addEventListener('click', sendPhotoAlone);
+$('attach-remove').addEventListener('click', () => {
+  sfx.click();
+  clearPhoto();
+});
 
 // ---------- Entrada: dedo o barra espaciadora ----------
 

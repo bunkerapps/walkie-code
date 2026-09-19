@@ -21,6 +21,7 @@ import { listVoices } from './lib/voices.js';
 import { synthesize, getClip } from './lib/tts.js';
 import { isDictated } from './lib/voice-style.js';
 import { decideNotice, noticeSpeech, durationLabel, projectFromCwd, clampSeconds } from './lib/notices.js';
+import { saveImage, findImage, cleanupImages, promptWithImage, MAX_IMAGE_BYTES, DEFAULT_IMAGE_TEXT } from './lib/images.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -207,12 +208,12 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req, limit = 20 * 1024 * 1024) {
+async function readBody(req, limit = 20 * 1024 * 1024, tooBig = 'audio demasiado largo') {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw Object.assign(new Error('audio demasiado largo'), { status: 413 });
+    if (size > limit) throw Object.assign(new Error(tooBig), { status: 413 });
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -224,39 +225,79 @@ function authorized(req, url) {
   return (req.headers['x-supervoz-token'] || url.searchParams.get('t')) === cfg.token;
 }
 
-// El teléfono mandó audio: se transcribe y se escribe en el canal activo.
-async function handleTalk(req, res) {
-  const clientId = req.headers['x-supervoz-client'] || null;
-  const audio = await readBody(req);
-  if (audio.length < 1000) return json(res, 422, { error: 'No llegó audio.' });
+// ---------- Fotos ----------
 
-  const [text, found] = await Promise.all([transcribe(audio, req.headers['content-type'] || 'audio/mp4'), resolveChannels()]);
-  if (!text) return json(res, 422, { error: 'No se entendió nada.' });
+// La foto cargada en el teléfono. Si ya se borró, el teléfono tiene que volver a elegirla.
+function uploadedImage(id) {
+  if (!id) return null;
+  const file = findImage(cfg.uploadsDir, id);
+  if (!file) throw Object.assign(new Error('La foto ya no está en la Mac. Elegila de nuevo.'), { status: 410 });
+  return file;
+}
 
+// El teléfono sube la foto (ya achicada) apenas se elige; se manda después con el PTT.
+async function handleImage(req, res) {
+  const buffer = await readBody(req, MAX_IMAGE_BYTES, 'La foto es demasiado grande.');
+  const { id, file } = await saveImage(cfg.uploadsDir, buffer);
+  log(`+ foto ${path.basename(file)} (${Math.round(buffer.length / 1024)} KB)`);
+  cleanupImages(cfg.uploadsDir).catch(() => {});
+  return json(res, 201, { id });
+}
+
+// ---------- Hablarle a Claude ----------
+
+// Escribe en el canal activo. Con foto, la ruta va al final y nunca se toma como respuesta a un permiso.
+async function deliver(res, { found, text, image, clientId }) {
   const { active } = found;
   if (!active) return json(res, 409, { error: channelsPayload(found).error, text });
 
   // Si Claude está esperando un permiso, "sí" o "no" contestan el menú en vez de escribirse.
   const waiting = pending.get(active.tty);
-  // También vale para un permiso avisado desde otro canal (`asking`).
-  const answer = waiting?.permission || asking.has(active.tty) ? permissionAnswer(text) : null;
+  // También vale para un permiso avisado desde otro canal (`asking`). Con foto nunca es un permiso.
+  const answer = (waiting?.permission || asking.has(active.tty)) && !image ? permissionAnswer(text) : null;
   asking.delete(active.tty);
+  const prompt = image ? promptWithImage(text, image) : text;
 
   // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
-  // y tiene que encontrar el texto dictado para pedir una respuesta apta para voz.
-  const sent = answer ? null : { text, at: Date.now() };
+  // y tiene que encontrar el texto dictado (con la ruta de la foto, tal cual lo recibe Claude).
+  const sent = answer ? null : { text: prompt, at: Date.now() };
   pending.set(active.tty, { project: active.project, clientId, permission: false, sent });
   try {
     if (answer) await pressKey(active.id, answer === 'yes' ? 'enter' : 'escape');
-    else await writeAndSubmit(active.id, text);
+    else await writeAndSubmit(active.id, prompt);
   } catch (err) {
     if (waiting) pending.set(active.tty, waiting);
     else pending.delete(active.tty);
     throw err;
   }
 
-  log(`> ${active.project}: ${answer ? `[permiso: ${answer}]` : text}`);
-  return json(res, 200, { text, project: active.project, permission: answer });
+  log(`> ${active.project}: ${answer ? `[permiso: ${answer}]` : prompt}`);
+  return json(res, 200, { text: text || DEFAULT_IMAGE_TEXT, project: active.project, permission: answer, image: Boolean(image) });
+}
+
+// El teléfono mandó audio: se transcribe y se escribe en el canal activo.
+// Con el header X-Supervoz-Image va también la foto cargada; si no se entendió nada, igual se manda.
+async function handleTalk(req, res) {
+  const clientId = req.headers['x-supervoz-client'] || null;
+  const image = uploadedImage(req.headers['x-supervoz-image']);
+  const audio = await readBody(req);
+  if (audio.length < 1000 && !image) return json(res, 422, { error: 'No llegó audio.' });
+
+  const [text, found] = await Promise.all([
+    audio.length < 1000 ? '' : transcribe(audio, req.headers['content-type'] || 'audio/mp4'),
+    resolveChannels(),
+  ]);
+  if (!text && !image) return json(res, 422, { error: 'No se entendió nada.' });
+  return deliver(res, { found, text, image, clientId });
+}
+
+// "ENVIAR SOLA": la foto sin dictar nada, con el texto por defecto.
+async function handleSend(req, res) {
+  const clientId = req.headers['x-supervoz-client'] || null;
+  const { image: id, text = '' } = await readJson(req);
+  const image = uploadedImage(id);
+  if (!image) return json(res, 422, { error: 'No hay foto para mandar.' });
+  return deliver(res, { found: await resolveChannels(), text: String(text), image, clientId });
 }
 
 // Lo llama hooks/claude-hook.js cuando empieza un turno, cuando Claude Code termina de responder
@@ -466,6 +507,8 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/channels') return json(res, 200, channelsPayload(await resolveChannels()));
     if (route === 'POST /api/channel') return await handleSelect(req, res);
     if (route === 'POST /api/talk') return await handleTalk(req, res);
+    if (route === 'POST /api/image') return await handleImage(req, res);
+    if (route === 'POST /api/send') return await handleSend(req, res);
     if (route === 'GET /api/folders') return await handleFolders(res, url);
     if (route === 'GET /api/voices') return await handleVoices(res);
     if (route === 'POST /api/voice') return await handleVoice(req, res);
@@ -504,6 +547,7 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 startWhisper();
+cleanupImages(cfg.uploadsDir).catch(() => {});
 await waitForWhisper();
 // Solo escucha en localhost: al teléfono le llega por `tailscale serve`, con HTTPS.
 server.listen(cfg.port, '127.0.0.1', () => {
