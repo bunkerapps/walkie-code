@@ -311,9 +311,28 @@ player.addEventListener('ended', () => setTimeout(flushNotices, 400));
 let playStartsAt = 0;
 
 // `quiet`: si Safari no deja reproducir, no se pide tocar REPETIR (los avisos ya quedan en pantalla).
+// iOS muestra el audio de la web en la Isla Dinámica y en la pantalla bloqueada como si fuera música:
+// así se ve quién habla y en qué canal, con el ícono del walkie.
+function setNowPlaying() {
+  if (!('mediaSession' in navigator)) return;
+  const active = channels.find((c) => c.id === activeId);
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: active ? `Claude · ${active.project}` : 'Claude',
+      artist: 'Supervoz',
+      album: active ? `CH${String(channels.indexOf(active) + 1).padStart(2, '0')}` : '',
+      artwork: [{ src: 'icon-180.png', sizes: '180x180', type: 'image/png' }],
+    });
+    navigator.mediaSession.setActionHandler('pause', stopPlayback);
+    navigator.mediaSession.setActionHandler('stop', stopPlayback);
+    navigator.mediaSession.setActionHandler('play', () => player.play().catch(() => {}));
+  } catch {}
+}
+
 function play(src, { squelch: withSquelch = true, rx = true, delay = withSquelch ? 280 : 0, quiet = false } = {}) {
   player.pause();
   setAudioSession('playback');
+  setNowPlaying();
   if (withSquelch) sfx.incoming();
   player.dataset.rx = rx ? '1' : '';
   playStartsAt = Date.now() + delay;
