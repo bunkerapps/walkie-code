@@ -666,9 +666,18 @@ async function handleRecap(res, url) {
   return json(res, 200, payload);
 }
 
+// Sonidos propios en ~/.walkie-code/sounds/ (mismo nombre) reemplazan a los públicos, sin publicarlos.
+const SOUND_NAMES = new Set(['ptt.m4a', 'release.m4a', 'rx.m4a']);
+
+function localSound(pathname) {
+  const name = pathname.startsWith('/sounds/') ? pathname.slice('/sounds/'.length) : '';
+  const file = SOUND_NAMES.has(name) ? path.join(HOME_DIR, 'sounds', name) : null;
+  return file && existsSync(file) ? file : null;
+}
+
 async function serveStatic(res, pathname) {
-  const file = path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
-  if (!file.startsWith(PUBLIC + path.sep)) return json(res, 404, { error: 'no encontrado' });
+  const file = localSound(pathname) || path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
+  if (!file.startsWith(PUBLIC + path.sep) && file !== localSound(pathname)) return json(res, 404, { error: 'no encontrado' });
   try {
     const data = await readFile(file);
     res.writeHead(200, {

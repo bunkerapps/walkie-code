@@ -92,6 +92,8 @@ Useful commands: `scripts/service.sh restart | status | logs | uninstall` and `n
 | `allowedHosts` | `[]` | Extra `Host` names accepted besides localhost and `*.ts.net` |
 | `pushSubject` | `https://bunkerapps.net` | VAPID contact (`mailto:` or `https:`) |
 
+**Sounds.** The public sounds are synthesized by `scripts/make-sounds.js`. To use your own without publishing them, drop `ptt.m4a`, `release.m4a` and `rx.m4a` into `~/.walkie-code/sounds/`.
+
 Set `WALKIE_CODE_HOME` to run a second, isolated instance, for example during development.
 
 ## Security
