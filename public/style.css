@@ -669,6 +669,22 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .perm-actions .picker-btn { width: 100%; height: 46px; font-size: 22px; letter-spacing: 0.1em; }
 .perm-actions .picker-btn[hidden] { display: none; }
 
+/* Respuesta esperando en otro canal: "MSJ CH03", titilando; al tocarla se va a ese canal y se escucha. */
+.lcd-inbox {
+  font: 24px/1 var(--lcd-font);
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  color: var(--lcd);
+  background: var(--lcd-ink);
+  border-radius: 3px;
+  animation: inbox-blink 1.2s steps(2) infinite;
+}
+.lcd-inbox::after { content: ''; position: absolute; inset: -8px; }
+.lcd-inbox { position: relative; }
+.lcd-inbox[hidden] { display: none; }
+.lcd-state:has(.lcd-inbox:not([hidden])) .lcd-meter { display: none; }
+@keyframes inbox-blink { 50% { opacity: 0.35; } }
+
 @media (max-height: 700px) {
   .radio { gap: 10px; padding-top: 14px; }
   .lcd { min-height: 140px; }

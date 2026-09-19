@@ -463,13 +463,16 @@ async function handleHook(req, res) {
   if (!waiting) return json(res, 200, await sendNotice(body, startedAt));
 
   // Si la respuesta viene de un canal distinto al que está en pantalla, se anuncia de dónde viene.
-  const { active } = await resolveChannels().catch(() => ({}));
+  const { active, channels: open = [] } = await resolveChannels().catch(() => ({}));
   const from = active?.tty === body.tty ? '' : `Desde ${waiting.project}. `;
+  // El id exacto del canal: el teléfono lo usa para saber si la respuesta es del canal en pantalla
+  // (por nombre fallaba si se renombraba o si dos canales se llamaban parecido).
+  const channel = open.find((c) => c.tty === body.tty)?.id || null;
 
   if (body.event === 'Stop') {
     pending.delete(body.tty);
     const speech = from + (toSpeech(body.text) || 'Listo.');
-    broadcast('reply', { text: body.text, audio: await speak(speech), project: waiting.project, to: waiting.clientId });
+    broadcast('reply', { text: body.text, audio: await speak(speech), project: waiting.project, channel, to: waiting.clientId });
     notifyPush(waiting.clientId, pushMessage({ kind: 'reply', text: body.text, project: waiting.project }));
     log(`< ${waiting.project}: respuesta de ${body.text?.length || 0} caracteres`);
   } else if (body.kind === 'permission') {
@@ -485,6 +488,7 @@ async function handleHook(req, res) {
       ? { id: randomUUID(), tool: body.tool, summary, detail, always: canAlways(body.suggestions) }
       : null;
     broadcast('notify', {
+      channel,
       text: detail ? `${summary}: ${detail}` : body.text,
       audio: await speak(speech),
       project: waiting.project,
@@ -525,7 +529,8 @@ async function sendNotice(body, startedAt) {
   // Sin teléfonos conectados no se genera el audio: al reconectar, el aviso viejo solo se muestra.
   const audio = clients.size ? await speak(speech) : null;
   const duration = durationLabel(notice.seconds);
-  broadcast('notice', { kind: notice.kind, text: body.text || speech, speech, project, duration, audio });
+  const channel = channels.find((c) => c.tty === body.tty)?.id || null;
+  broadcast('notice', { kind: notice.kind, text: body.text || speech, speech, project, channel, duration, audio });
   // Con el teléfono bloqueado, el aviso llega igual como notificación (a todos los suscriptos).
   notifyPush(null, notice.kind === 'permission'
     ? pushMessage({ kind: 'permission', tool: body.tool, project })

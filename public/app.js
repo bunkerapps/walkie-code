@@ -170,6 +170,7 @@ function applyChannels(payload) {
   if (payload.active && payload.active.id !== announcedId) {
     announcedId = payload.active.id;
     renderLog();
+    takeFromInbox(payload.active.id);
     // El título y el resumen, solo la primera vez que se ve el canal: al volver ya está su historial.
     if (!logs.get(payload.active.id)?.length) {
       if (payload.active.title) log(`CH${String(payload.active.number).padStart(2, '0')}`, payload.active.title, { muted: true });
@@ -210,18 +211,27 @@ async function switchChannel(direction) {
     if (channels.length < 2) log('', 'HAY UN SOLO PROYECTO ABIERTO', { muted: true });
     return;
   }
-  unlockAudio();
   const index = channels.findIndex((c) => c.id === activeId);
   const next = channels[(index + direction + channels.length) % channels.length];
-  activeId = next.id;
-  renderChannel(direction);
+  return selectChannel(next.id, direction);
+}
+
+// Sintoniza un canal por su id (deslizando, desde la isla o tocando un aviso de respuesta en espera).
+async function selectChannel(id, direction) {
+  if (state === 'tx' || state === 'arming') return;
+  unlockAudio();
+  const from = channels.findIndex((c) => c.id === activeId);
+  const to = channels.findIndex((c) => c.id === id);
+  activeId = id;
+  renderChannel(direction ?? (to < from ? -1 : 1));
   renderLog();
+  renderInbox();
   sfx.click();
   try {
     const res = await api('/api/channel', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: next.id }),
+      body: JSON.stringify({ id }),
     });
     const body = await res.json();
     applyChannels(body);
@@ -285,6 +295,10 @@ function beep(notes, volume = 0.12) {
   const ac = audioCtx();
   let t = ac.currentTime;
   for (const [freq, dur] of notes) {
+    if (!freq) {
+      t += dur;
+      continue;
+    }
     const osc = ac.createOscillator();
     const gain = ac.createGain();
     osc.type = 'square';
@@ -375,6 +389,7 @@ const sfx = {
   click: () => beep([[2200, 0.02]], 0.06),
   incoming: () => playSample('rx') || squelch(0.22, vol('rx')),
   error: () => beep([[320, 0.14], [220, 0.2]]),
+  waiting: () => vol('notice') > 0 && beep([[1760, 0.06], [0, 0.07], [1760, 0.06]], 0.09 * vol('notice')),
   notice: () => vol('notice') > 0 && beep([[988, 0.09], [1319, 0.18]], 0.08 * vol('notice')),
 };
 
@@ -1038,6 +1053,63 @@ function onPermissionDone(e) {
   log('PERMISO', decision ? PERM_LABELS[decision] : 'SIN RESPUESTA: QUEDÓ PARA CONTESTAR EN LA MAC', { muted: true });
 }
 
+// ---------- Respuestas en espera ----------
+//
+// Con varios canales trabajando a la vez, las voces se encimaban. Una respuesta de otro canal no suena:
+// hace "pi-pi", queda esperando y la pantalla muestra "MSJ CH03"; se escucha al ir a ese canal.
+// Una del canal actual que llega mientras suena otra cosa espera su turno en vez de cortarla.
+
+const inbox = new Map(); // id de canal -> { audio, text, project, at }
+const playQueue = [];
+let queueTimer = 0;
+
+function renderInbox() {
+  const waiting = [...inbox.entries()].filter(([id]) => id !== activeId).sort((a, b) => a[1].at - b[1].at);
+  const el = $('inbox');
+  el.hidden = !waiting.length;
+  if (!waiting.length) return;
+  const number = channels.findIndex((c) => c.id === waiting[0][0]) + 1;
+  el.textContent = `MSJ CH${String(number).padStart(2, '0')}${waiting.length > 1 ? ` +${waiting.length - 1}` : ''}`;
+}
+
+function enqueueAudio(audio) {
+  playQueue.push(audio);
+  clearInterval(queueTimer);
+  queueTimer = setInterval(() => {
+    if (!playQueue.length) return clearInterval(queueTimer);
+    if (!audioBusy()) play(playQueue.shift());
+  }, 400);
+}
+
+function deliverAudio(channel, reply) {
+  if (channel && channel !== activeId) {
+    inbox.set(channel, { ...reply, at: Date.now() });
+    sfx.waiting();
+    renderInbox();
+    return;
+  }
+  lastClip = reply.audio;
+  audioBusy() ? enqueueAudio(reply.audio) : play(reply.audio);
+}
+
+// Al llegar a un canal (deslizando, por voz o tocando el aviso), su respuesta en espera se escucha.
+function takeFromInbox(channel) {
+  const waiting = inbox.get(channel);
+  inbox.delete(channel);
+  renderInbox();
+  if (!waiting) return;
+  lastClip = waiting.audio;
+  setNowPlaying(waiting.text);
+  enqueueAudio(waiting.audio);
+}
+
+// Tocar el aviso: ir al canal que espera hace más tiempo.
+$('inbox').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const [first] = [...inbox.entries()].filter(([id]) => id !== activeId).sort((a, b) => a[1].at - b[1].at);
+  if (first) selectChannel(first[0]);
+});
+
 // ---------- Lector de mensajes completos ----------
 
 function openReader(who, text) {
@@ -1391,14 +1463,15 @@ function onIncoming(label) {
     const mine = !to || to === clientId;
     // También al volver desde la notificación (replay), mientras el hook lo siga esperando (~2 minutos).
     if (mine && data.permission && (!replay || Date.now() - (at || 0) < 125 * 1000)) showPermission(data);
-    log(project ? `${label} ${project.toUpperCase()}` : label, text, { muted: !mine, channel: channelOf(project) });
+    const channel = data.channel || channelOf(project);
+    log(project ? `${label} ${project.toUpperCase()}` : label, text, { muted: !mine, channel });
     // Si habló otro dispositivo, acá solo se muestra el texto.
     if (!mine) return;
     lastClip = audio;
     setNowPlaying(text);
     setTimeout(refreshUsage, 5000); // la barra de estado de Claude Code se actualiza al terminar el turno
     if (state === 'waiting' || label === 'PERMISO') setState('idle');
-    if (!replay) return play(audio);
+    if (!replay) return deliverAudio(channel, { audio, text, project });
     clearTimeout(replayTimer);
     if (Date.now() - (at || 0) < REPLAY_FRESH_MS) replayTimer = setTimeout(() => play(audio), 300);
   };
@@ -1425,7 +1498,7 @@ function onNotice(e) {
   if ((notice.kind === 'limit' || notice.kind === 'error') && state === 'waiting') setState('idle');
   if (notice.to && notice.to !== clientId && notice.kind === 'error') return;
   const who = `${NOTICE_LABELS[notice.kind] || 'AVISO'} ${notice.project.toUpperCase()}`;
-  log(notice.duration ? `${who} · ${notice.duration}` : who, notice.text, { channel: channelOf(notice.project) });
+  log(notice.duration ? `${who} · ${notice.duration}` : who, notice.text, { channel: notice.channel || channelOf(notice.project) });
   // Los que se recuperan al reconectar ya pasaron: solo se muestran.
   if (!notice.audio || Date.now() - notice.at > NOTICE_FRESH_MS) return;
   noticeQueue.push(notice);
