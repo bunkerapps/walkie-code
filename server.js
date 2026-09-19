@@ -4,6 +4,7 @@
 //   iPhone (miniweb) --audio--> este servidor --> whisper-server (voz a texto)
 //                                             --> iTerm2 (escribe y envía en el canal elegido)
 //   Claude Code --hook Stop/PermissionRequest--> este servidor --say--> audio --SSE--> iPhone
+//                                                             --Web Push--> iPhone bloqueado
 //   Claude Code --hook UserPromptSubmit--> este servidor: anota cuándo empezó el turno (avisos)
 //                                          y contesta si lo dictó el teléfono (estilo para voz)
 
@@ -13,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, saveConfig } from './lib/config.js';
+import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer } from './lib/speech.js';
 import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
@@ -23,6 +24,8 @@ import { synthesize, getClip } from './lib/tts.js';
 import { isDictated } from './lib/voice-style.js';
 import { decideNotice, noticeSpeech, durationLabel, projectFromCwd, clampSeconds } from './lib/notices.js';
 import { saveImage, findImage, cleanupImages, promptWithImage, MAX_IMAGE_BYTES, DEFAULT_IMAGE_TEXT } from './lib/images.js';
+import { openPushStore, createPresence, pushTargets, pushMessage } from './lib/push.js';
+import { sendPush } from './lib/webpush.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -202,6 +205,43 @@ async function transcribe(audio, mime) {
 
 const speak = async (text) => `/api/audio/${await synthesize(text, cfg)}`;
 
+// ---------- Avisos push (teléfono bloqueado) ----------
+
+const pushStore = openPushStore(path.join(HOME_DIR, 'push.json'));
+const presence = createPresence();
+
+async function pushTo(subscription, message) {
+  try {
+    const result = await sendPush(subscription, message, { vapid: pushStore.vapid, subject: cfg.pushSubject });
+    // El teléfono desinstaló la app o revocó el permiso: la suscripción no sirve más.
+    if (result.gone) pushStore.remove(subscription.endpoint);
+    if (!result.ok) log(`! push a ${subscription.device}: ${result.status} ${result.detail}`.trim());
+    return result;
+  } catch (err) {
+    log(`! push a ${subscription.device}: ${err.message}`);
+    return { ok: false, status: 0, detail: err.message };
+  }
+}
+
+// Avisa a los teléfonos que no tienen la app a la vista. No frena al hook: corre por su cuenta.
+function notifyPush(to, message) {
+  const targets = pushTargets(pushStore.list(), to, presence.isVisible);
+  for (const sub of targets) pushTo(sub, message);
+  if (targets.length) log(`» push a ${targets.length} dispositivo(s): ${message.body.slice(0, 40)}`);
+}
+
+async function handlePushSubscribe(req, res) {
+  const clientId = req.headers['x-supervoz-client'] || null;
+  const { subscription, test } = await readJson(req);
+  pushStore.save(subscription, clientId, deviceName(req));
+  // Al abrir la app se vuelve a mandar la suscripción, sin aviso: solo para mantenerla al día.
+  if (!test) return json(res, 200, { ok: true });
+  log(`+ avisos push activados en ${deviceName(req)}`);
+  // Un primer aviso de prueba: si el servicio de push rechaza algo (clave, JWT), se ve en el acto.
+  const result = await pushTo(pushStore.list().at(-1), { title: 'SUPERVOZ', body: 'Avisos activados. Así te llegan las respuestas con el teléfono bloqueado.', tag: 'supervoz-test', url: '/' });
+  return json(res, 200, { ok: result.ok, status: result.status, detail: result.detail || undefined });
+}
+
 // ---------- Rutas ----------
 
 function json(res, status, body) {
@@ -358,12 +398,14 @@ async function handleHook(req, res) {
     pending.delete(body.tty);
     const speech = from + (toSpeech(body.text) || 'Listo.');
     broadcast('reply', { text: body.text, audio: await speak(speech), project: waiting.project, to: waiting.clientId });
+    notifyPush(waiting.clientId, pushMessage({ kind: 'reply', text: body.text, project: waiting.project }));
     log(`< ${waiting.project}: respuesta de ${body.text?.length || 0} caracteres`);
   } else if (body.kind === 'permission') {
     waiting.permission = true;
     const what = body.tool ? `usar ${body.tool}` : 'seguir';
     const speech = `${from}Claude necesita permiso para ${what}. Decí sí para aprobar o no para cancelar.`;
     broadcast('notify', { text: body.text, audio: await speak(speech), project: waiting.project, to: waiting.clientId });
+    notifyPush(waiting.clientId, pushMessage({ kind: 'permission', tool: body.tool, project: waiting.project }));
     log(`< ${waiting.project}: pide permiso (${body.tool || '?'})`);
   }
   return json(res, 200, { ok: true });
@@ -390,6 +432,10 @@ async function sendNotice(body, startedAt) {
   const audio = clients.size ? await speak(speech) : null;
   const duration = durationLabel(notice.seconds);
   broadcast('notice', { kind: notice.kind, text: body.text || speech, speech, project, duration, audio });
+  // Con el teléfono bloqueado, el aviso llega igual como notificación (a todos los suscriptos).
+  notifyPush(null, notice.kind === 'permission'
+    ? pushMessage({ kind: 'permission', tool: body.tool, project })
+    : pushMessage({ kind: 'reply', text: `Terminó, después de ${duration.toLowerCase()}. ${body.text || ''}`, project }));
   log(`! ${project}: ${notice.kind === 'permission' ? `pide permiso (${body.tool || '?'})` : `terminó (${duration})`}`);
   return { notice: notice.kind };
 }
@@ -546,6 +592,8 @@ const server = http.createServer(async (req, res) => {
   try {
     if (!url.pathname.startsWith('/api/')) return await serveStatic(res, url.pathname);
     if (!authorized(req, url)) return json(res, 401, { error: 'Token inválido.' });
+    // Cualquier pedido del teléfono (salvo el aviso de que se ocultó) prueba que la app está a la vista.
+    if (route !== 'POST /api/presence') presence.touch(req.headers['x-supervoz-client']);
 
     if (route === 'GET /api/events') return openEvents(req, res, url);
     if (route === 'GET /api/channels') return json(res, 200, channelsPayload(await resolveChannels()));
@@ -562,6 +610,16 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/name') return await handleName(req, res);
     if (route === 'POST /api/open') return await handleOpen(req, res);
     if (route === 'POST /api/hook') return await handleHook(req, res);
+    if (route === 'GET /api/push') return json(res, 200, { publicKey: pushStore.vapid.publicKey });
+    if (route === 'POST /api/push/subscribe') return await handlePushSubscribe(req, res);
+    if (route === 'POST /api/push/unsubscribe') {
+      pushStore.remove((await readJson(req)).endpoint);
+      return json(res, 200, { ok: true });
+    }
+    if (route === 'POST /api/presence') {
+      presence.touch(req.headers['x-supervoz-client'], Boolean((await readJson(req)).visible));
+      return json(res, 200, { ok: true });
+    }
     if (route === 'POST /api/escape') {
       const { active } = await resolveChannels();
       if (!active) return json(res, 409, { error: 'No hay canal activo.' });
