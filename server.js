@@ -23,7 +23,7 @@ import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openCla
 import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
 import { parseChannelCommand, findChannel, missSpeech } from './lib/commands.js';
-import { synthesize, getClip } from './lib/tts.js';
+import { synthesize, getClipWithGain, parseGain } from './lib/tts.js';
 import { isDictated } from './lib/voice-style.js';
 import { decideNotice, noticeSpeech, durationLabel, projectFromCwd, clampSeconds } from './lib/notices.js';
 import { saveImage, findImage, cleanupImages, promptWithImage, MAX_IMAGE_BYTES, DEFAULT_IMAGE_TEXT } from './lib/images.js';
@@ -756,7 +756,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (req.method === 'GET' && url.pathname.startsWith('/api/audio/')) {
-      const clip = getClip(url.pathname.split('/').pop());
+      const clip = await getClipWithGain(url.pathname.split('/').pop(), parseGain(url.searchParams.get('g')));
       if (!clip) return json(res, 404, { error: 'audio vencido' });
       res.writeHead(200, { 'Content-Type': 'audio/mp4', 'Content-Length': clip.length, 'Cache-Control': 'private, max-age=3600' });
       return res.end(clip);

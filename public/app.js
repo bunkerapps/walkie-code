@@ -284,6 +284,20 @@ const fxVolume = (() => {
 })();
 const vol = (name) => fxVolume[name] ?? 1;
 
+// Volumen de la voz, de 20 a 300 %, también por teléfono. Safari en iOS ignora el volumen de <audio>,
+// así que la ganancia la aplica la Mac al servir el audio (?g=).
+const VOICE_VOL_KEY = 'walkie-code-voice-volume';
+const VOICE_VOL_MIN = 0.2;
+const VOICE_VOL_MAX = 3;
+let voiceVolume = (() => {
+  try {
+    const v = Number(localStorage.getItem(VOICE_VOL_KEY));
+    return v >= VOICE_VOL_MIN && v <= VOICE_VOL_MAX ? v : 1;
+  } catch {
+    return 1;
+  }
+})();
+
 // Sonidos grabados del equipo (public/sounds). Si todavía no cargaron, se sintetizan.
 const samples = {};
 
@@ -372,7 +386,8 @@ function play(src, { squelch: withSquelch = true, rx = true, delay = withSquelch
   player.dataset.rx = rx ? '1' : '';
   playStartsAt = Date.now() + delay;
   setTimeout(() => {
-    player.src = `${src}?t=${encodeURIComponent(token)}`;
+    const gain = voiceVolume === 1 ? '' : `&g=${voiceVolume}`;
+    player.src = `${src}?t=${encodeURIComponent(token)}${gain}`;
     player.play().catch(() => quiet || log('', 'TOCÁ REPETIR PARA ESCUCHAR', { muted: true }));
   }, delay);
 }
@@ -1093,6 +1108,28 @@ function setFx(name, value) {
   renderFx();
   ({ ptt: sfx.txStart, release: sfx.release, rx: sfx.incoming, notice: sfx.notice })[name]();
 }
+
+const VOICE_VOL_STEP = 0.2;
+
+function renderVoiceVolume() {
+  const cells = Math.round((voiceVolume / VOICE_VOL_MAX) * 10);
+  $('voice-vol-level').textContent = `${'▮'.repeat(cells).padEnd(10, '▯')} ${Math.round(voiceVolume * 100)}%`;
+}
+
+// Cambia el volumen de la voz, lo guarda y repite la última respuesta para escucharlo.
+function setVoiceVolume(value) {
+  unlockAudio();
+  voiceVolume = Math.round(Math.min(VOICE_VOL_MAX, Math.max(VOICE_VOL_MIN, value)) * 10) / 10;
+  try {
+    localStorage.setItem(VOICE_VOL_KEY, String(voiceVolume));
+  } catch {}
+  renderVoiceVolume();
+  if (lastClip) play(lastClip, { squelch: false });
+}
+
+$('voice-vol-down').addEventListener('click', () => setVoiceVolume(voiceVolume - VOICE_VOL_STEP));
+$('voice-vol-up').addEventListener('click', () => setVoiceVolume(voiceVolume + VOICE_VOL_STEP));
+renderVoiceVolume();
 
 $('fx-toggle').addEventListener('click', () => {
   const open = $('fx').hidden;
