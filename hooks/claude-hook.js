@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
-import { VOICE_STYLE, promptContextOutput } from '../lib/voice-style.js';
+import { voiceContext, promptContextOutput } from '../lib/voice-style.js';
 
 const TIMEOUT_MS = 1500;
 // UserPromptSubmit frena el prompt hasta que el hook termina: pasado este plazo se sale igual.
@@ -103,7 +103,7 @@ async function main() {
 
   if (isPrompt && cfg.voiceStyle !== false && res.ok && (await res.json()).dictated) {
     // En macOS la escritura a un pipe es asíncrona: hay que esperarla antes del process.exit.
-    await new Promise((r) => process.stdout.write(promptContextOutput(VOICE_STYLE), r));
+    await new Promise((r) => process.stdout.write(promptContextOutput(voiceContext(input.prompt, cfg.language)), r));
   }
 }
 
