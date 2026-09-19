@@ -27,6 +27,7 @@ import { synthesize, getClipWithGain, parseGain } from './lib/tts.js';
 import { isDictated } from './lib/voice-style.js';
 import { decideNotice, noticeSpeech, durationLabel, projectFromCwd, clampSeconds } from './lib/notices.js';
 import { saveImage, findImage, cleanupImages, promptWithImage, MAX_IMAGE_BYTES, DEFAULT_IMAGE_TEXT } from './lib/images.js';
+import { PendingStore } from './lib/pending.js';
 import { openPushStore, createPresence, pushTargets, pushMessage } from './lib/push.js';
 import { sendPush } from './lib/webpush.js';
 
@@ -57,7 +58,7 @@ let selectedId = null;
 // Transcripción de Claude Code de cada terminal, según los hooks (para el resumen del canal).
 const transcripts = new Map(); // tty -> ruta del .jsonl
 
-const pending = new Map(); // tty -> { project, clientId, permission, sent: { text, at } | null }
+const pending = new PendingStore(path.join(HOME_DIR, 'pending.json')); // tty -> { project, clientId, permission, sent: { text, at } | null, since }
 
 // Cuándo empezó el turno en curso de cada terminal (hook UserPromptSubmit), para medir cuánto duró.
 const turns = new Map(); // tty -> ms
@@ -417,6 +418,7 @@ async function handleHook(req, res) {
     const dictated = isDictated(waiting?.sent, body.prompt);
     if (dictated) {
       waiting.sent = null; // se usa una sola vez
+      pending.save();
       log(`~ ${waiting.project}: pide respuesta para escuchar`);
     }
     return json(res, 200, { dictated });
@@ -442,6 +444,7 @@ async function handleHook(req, res) {
     log(`< ${waiting.project}: respuesta de ${body.text?.length || 0} caracteres`);
   } else if (body.kind === 'permission') {
     waiting.permission = true;
+    pending.save();
     const what = body.tool ? `usar ${body.tool}` : 'seguir';
     const speech = `${from}Claude necesita permiso para ${what}. Decí sí para aprobar o no para cancelar.`;
     broadcast('notify', { text: body.text, audio: await speak(speech), project: waiting.project, to: waiting.clientId });
