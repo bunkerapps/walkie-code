@@ -9,6 +9,7 @@
 //                                          y contesta si lo dictó el teléfono (estilo para voz)
 
 import http from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -16,7 +17,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/speech.js';
-import { recapOf, newestTranscript, readTail } from './lib/transcript.js';
+import { recapOf, newestTranscript, readTail, isTranscriptPath } from './lib/transcript.js';
 import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
 import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
@@ -250,7 +251,7 @@ async function handlePushSubscribe(req, res) {
 // ---------- Rutas ----------
 
 function json(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(body));
 }
 
@@ -267,9 +268,40 @@ async function readBody(req, limit = 20 * 1024 * 1024, tooBig = 'audio demasiado
 
 const readJson = async (req) => JSON.parse((await readBody(req, 2 * 1024 * 1024)).toString('utf8') || '{}');
 
+// El token se compara en tiempo constante. Va en un header, o en la URL cuando el navegador no deja
+// poner headers (EventSource y <audio>).
 function authorized(req, url) {
-  return (req.headers['x-supervoz-token'] || url.searchParams.get('t')) === cfg.token;
+  const given = Buffer.from(String(req.headers['x-supervoz-token'] || url.searchParams.get('t') || ''));
+  const want = Buffer.from(cfg.token);
+  return given.length === want.length && timingSafeEqual(given, want);
 }
+
+// Contra DNS rebinding: una página cualquiera no puede apuntar un dominio suyo a 127.0.0.1 y hablarle
+// a este servidor. Solo se atiende a localhost, a la Mac en el tailnet (*.ts.net) y a `allowedHosts`.
+function allowedHost(req) {
+  const host = String(req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
+  return ['localhost', '127.0.0.1', '[::1]'].includes(host) || host.endsWith('.ts.net') || (cfg.allowedHosts || []).includes(host);
+}
+
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+};
+
+// La página solo carga lo propio, más las tipografías de Google Fonts.
+const CSP = [
+  "default-src 'self'",
+  "style-src 'self' https://fonts.googleapis.com",
+  'font-src https://fonts.gstatic.com',
+  "img-src 'self' blob: data:",
+  "media-src 'self' blob:",
+  "connect-src 'self'",
+  "worker-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join('; ');
 
 // ---------- Fotos ----------
 
@@ -373,6 +405,7 @@ async function tuneByVoice(found, text) {
 async function handleHook(req, res) {
   const body = await readJson(req);
   if (!body.tty) return json(res, 200, { ignored: true });
+  body.transcript = isTranscriptPath(body.transcript) ? body.transcript : null;
   if (body.transcript) transcripts.set(body.tty, body.transcript);
   if (body.event === 'StopFailure') return json(res, 200, await handleFailure(body));
   // Claude Code recibió un prompt: se anota cuándo empezó el turno y se contesta rápido,
@@ -635,10 +668,12 @@ async function handleRecap(res, url) {
 
 async function serveStatic(res, pathname) {
   const file = path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
-  if (!file.startsWith(PUBLIC)) return json(res, 404, { error: 'no encontrado' });
+  if (!file.startsWith(PUBLIC + path.sep)) return json(res, 404, { error: 'no encontrado' });
   try {
     const data = await readFile(file);
     res.writeHead(200, {
+      ...SECURITY_HEADERS,
+      ...(file.endsWith('.html') && { 'Content-Security-Policy': CSP }),
       'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
       'Cache-Control': 'no-cache',
     });
@@ -652,6 +687,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const route = `${req.method} ${url.pathname}`;
   try {
+    if (!allowedHost(req)) return json(res, 421, { error: 'Host no permitido.' });
     if (!url.pathname.startsWith('/api/')) return await serveStatic(res, url.pathname);
     if (!authorized(req, url)) return json(res, 401, { error: 'Token inválido.' });
     // Cualquier pedido del teléfono (salvo el aviso de que se ocultó) prueba que la app está a la vista.
