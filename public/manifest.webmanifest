@@ -1,6 +1,6 @@
 {
-  "name": "Supervoz",
-  "short_name": "Supervoz",
+  "name": "Walkie-Code",
+  "short_name": "Walkie-Code",
   "description": "Walkie-talkie para hablarle a Claude Code",
   "display": "standalone",
   "orientation": "portrait",

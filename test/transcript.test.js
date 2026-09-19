@@ -41,7 +41,7 @@ test('si Claude todavía no respondió el último prompt, lo marca como trabajan
 });
 
 test('lee solo el final del archivo y descarta la línea cortada', async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'supervoz-tail-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'walkie-code-tail-'));
   const file = path.join(dir, 't.jsonl');
   await writeFile(file, `${'x'.repeat(100)}\n${user('último')}\n`);
   const tail = await readTail(file, 120);

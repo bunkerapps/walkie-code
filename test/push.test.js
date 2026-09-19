@@ -6,7 +6,7 @@ import os from 'node:os';
 import { openPushStore, isValidSubscription, createPresence, pushTargets, pushMessage, shorten, PRESENCE_TTL_MS } from '../lib/push.js';
 
 const sub = (n) => ({ endpoint: `https://web.push.apple.com/${n}`, keys: { p256dh: `p${n}`, auth: `a${n}` } });
-const tmpFile = () => path.join(mkdtempSync(path.join(os.tmpdir(), 'supervoz-push-')), 'push.json');
+const tmpFile = () => path.join(mkdtempSync(path.join(os.tmpdir(), 'walkie-code-push-')), 'push.json');
 
 test('genera las claves VAPID una sola vez y las guarda privadas', () => {
   const file = tmpFile();
@@ -68,7 +68,7 @@ test('texto del aviso: respuesta en texto plano y recortada', () => {
   assert.ok(msg.body.startsWith('Listo. Arreglé el bug en precios.js y corrí los tests.'), msg.body);
   assert.ok(msg.body.length <= 140);
   assert.ok(msg.body.endsWith('…'));
-  assert.equal(msg.tag, 'supervoz-superprecio');
+  assert.equal(msg.tag, 'walkie-code-superprecio');
   assert.equal(pushMessage({ kind: 'reply', text: '', project: 'x' }).body, 'Listo.');
 });
 

@@ -1,11 +1,11 @@
 {
-  "name": "supervoz",
+  "name": "walkie-code",
   "version": "0.1.0",
   "description": "Walkie-talkie web para dictarle por voz a Claude Code en iTerm2 desde el iPhone",
   "type": "module",
   "private": true,
   "bin": {
-    "supervoz": "./server.js"
+    "walkie-code": "./server.js"
   },
   "scripts": {
     "start": "node server.js",

@@ -13,7 +13,7 @@ test('resume tablas por cantidad de filas', () => {
 });
 
 test('acorta rutas y saca markdown', () => {
-  const out = toSpeech('## Cambios\n\n- Edité **`/Users/diego/Development/supervoz/lib/speech.js`**\n- Ver [docs](https://example.com)');
+  const out = toSpeech('## Cambios\n\n- Edité **`/Users/diego/Development/walkie-code/lib/speech.js`**\n- Ver [docs](https://example.com)');
   assert.equal(out, 'Cambios. Edité speech.js. Ver docs.');
 });
 

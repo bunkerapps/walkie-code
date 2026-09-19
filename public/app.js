@@ -26,10 +26,10 @@ const SWIPE_PX = 40;
 function readClientId() {
   const fresh = () => crypto.randomUUID?.() || String(Math.random()).slice(2);
   try {
-    const saved = localStorage.getItem('supervoz-client');
+    const saved = (localStorage.getItem('walkie-code-client') || localStorage.getItem('supervoz-client'));
     if (saved) return saved;
     const id = fresh();
-    localStorage.setItem('supervoz-client', id);
+    localStorage.setItem('walkie-code-client', id);
     return id;
   } catch {
     return fresh();
@@ -42,8 +42,9 @@ const clientId = readClientId();
 function readToken() {
   const fromUrl = new URLSearchParams(location.search).get('t');
   try {
-    if (fromUrl) localStorage.setItem('supervoz-token', fromUrl);
-    return fromUrl || localStorage.getItem('supervoz-token');
+    if (fromUrl) localStorage.setItem('walkie-code-token', fromUrl);
+    // supervoz-token: el nombre de antes; así el teléfono no hay que volver a configurarlo.
+    return fromUrl || localStorage.getItem('walkie-code-token') || localStorage.getItem('supervoz-token');
   } catch {
     return fromUrl;
   }
@@ -53,7 +54,7 @@ const token = readToken();
 function api(path, options = {}) {
   return fetch(path, {
     ...options,
-    headers: { 'X-Supervoz-Token': token, 'X-Supervoz-Client': clientId, ...options.headers },
+    headers: { 'X-Walkie-Token': token, 'X-Walkie-Client': clientId, ...options.headers },
   });
 }
 
@@ -335,7 +336,7 @@ function setNowPlaying() {
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: active ? `Claude · ${active.project}` : 'Claude',
-      artist: 'Supervoz',
+      artist: 'Walkie-Code',
       album: active ? `CH${String(channels.indexOf(active) + 1).padStart(2, '0')}` : '',
       artwork: [{ src: 'icon-180.png', sizes: '180x180', type: 'image/png' }],
     });
@@ -489,7 +490,7 @@ async function send(blob) {
   const imageId = sent ? await sent.ready.catch(() => null) : null;
   if (sent && !imageId) return fail('LA FOTO NO SE SUBIÓ. NO SE ENVIÓ NADA');
   try {
-    const headers = { 'Content-Type': blob.type, ...(imageId && { 'X-Supervoz-Image': imageId }) };
+    const headers = { 'Content-Type': blob.type, ...(imageId && { 'X-Walkie-Image': imageId }) };
     await afterSend(await api('/api/talk', { method: 'POST', headers, body: blob }), sent);
   } catch {
     fail('SIN CONEXIÓN CON LA MAC');
@@ -1158,7 +1159,7 @@ async function enablePush() {
   const permission = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
   if (permission !== 'granted') {
     setPush('off');
-    return log('!', 'AVISOS BLOQUEADOS. ACTIVALOS EN AJUSTES › NOTIFICACIONES › SUPERVOZ.');
+    return log('!', 'AVISOS BLOQUEADOS. ACTIVALOS EN AJUSTES › NOTIFICACIONES › WALKIE-CODE.');
   }
   try {
     swRegistration ??= await navigator.serviceWorker.register('sw.js');
@@ -1194,7 +1195,7 @@ async function disablePush() {
 
 pushButton.addEventListener('click', () => {
   sfx.click();
-  if (!pushSupported) return log('!', 'PARA RECIBIR AVISOS: COMPARTIR › AGREGAR A INICIO, Y ABRÍ SUPERVOZ DESDE AHÍ.');
+  if (!pushSupported) return log('!', 'PARA RECIBIR AVISOS: COMPARTIR › AGREGAR A INICIO, Y ABRÍ WALKIE-CODE DESDE AHÍ.');
   if (pushButton.dataset.push === 'busy') return;
   pushButton.dataset.push === 'on' ? disablePush() : enablePush();
 });

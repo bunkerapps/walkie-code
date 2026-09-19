@@ -6,7 +6,7 @@ import path from 'node:path';
 import { listFolders, safeDir } from '../lib/folders.js';
 
 async function fixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'supervoz-test-'));
+  const root = await mkdtemp(path.join(os.tmpdir(), 'walkie-code-test-'));
   await mkdir(path.join(root, 'proyecto-a', '.git'), { recursive: true });
   await mkdir(path.join(root, 'proyecto-b', 'web'), { recursive: true });
   await mkdir(path.join(root, '.oculta'));

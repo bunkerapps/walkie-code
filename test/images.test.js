@@ -12,7 +12,7 @@ const JPEG = pad([0xff, 0xd8, 0xff, 0xe0]);
 const PNG = pad([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const WEBP = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WEBPVP8 '), Buffer.alloc(20)]);
 
-const tmp = () => mkdtemp(path.join(os.tmpdir(), 'supervoz-img-'));
+const tmp = () => mkdtemp(path.join(os.tmpdir(), 'walkie-code-img-'));
 
 test('reconoce el formato por el contenido', () => {
   assert.equal(imageType(JPEG), 'jpg');
@@ -36,7 +36,7 @@ test('guarda la foto con la extensión real y la encuentra por id', async () => 
   const dir = path.join(await tmp(), 'uploads');
   const { id, file } = await saveImage(dir, PNG);
   assert.match(id, /^[a-f0-9]{16}$/);
-  assert.equal(file, path.join(dir, `supervoz-${id}.png`));
+  assert.equal(file, path.join(dir, `walkie-code-${id}.png`));
   assert.equal(findImage(dir, id), file);
   assert.equal((await stat(file)).mode & 0o777, 0o600);
 });
@@ -68,7 +68,7 @@ test('la limpieza no falla si la carpeta no existe', async () => {
 });
 
 test('arma el mensaje con lo dictado y la ruta al final', () => {
-  assert.equal(promptWithImage('¿Qué error es este?', '/u/d/.supervoz/uploads/a.jpg'), '¿Qué error es este? /u/d/.supervoz/uploads/a.jpg');
+  assert.equal(promptWithImage('¿Qué error es este?', '/u/d/.walkie-code/uploads/a.jpg'), '¿Qué error es este? /u/d/.walkie-code/uploads/a.jpg');
   assert.equal(promptWithImage('  dos\nlíneas  ', '/a.jpg'), 'dos líneas /a.jpg');
 });
 

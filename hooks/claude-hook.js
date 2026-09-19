@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Hook de Claude Code para los eventos Stop, PermissionRequest, Notification y UserPromptSubmit.
-// Le pasa a supervoz la última respuesta de Claude y la terminal donde corre.
+// Le pasa a walkie-code la última respuesta de Claude y la terminal donde corre.
 // En UserPromptSubmit pregunta si el prompt lo dictó el teléfono y, si es así,
 // le pide a Claude una respuesta pensada para escuchar.
-// Si supervoz no está corriendo no hace nada: nunca debe frenar a Claude Code.
+// Si walkie-code no está corriendo no hace nada: nunca debe frenar a Claude Code.
 
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -56,7 +56,7 @@ function isToolResult(entry) {
 function post(cfg, body, timeout = TIMEOUT_MS) {
   return fetch(`http://127.0.0.1:${cfg.port}/api/hook`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Supervoz-Token': cfg.token },
+    headers: { 'Content-Type': 'application/json', 'X-Walkie-Token': cfg.token },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeout),
   });

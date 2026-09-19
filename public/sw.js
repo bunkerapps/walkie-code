@@ -1,4 +1,4 @@
-// Service worker de supervoz: solo existe para los avisos push con el teléfono bloqueado.
+// Service worker de walkie-code: solo existe para los avisos push con el teléfono bloqueado.
 // No cachea nada: la app necesita la Mac del otro lado para servir de algo.
 
 self.addEventListener('install', () => self.skipWaiting());
@@ -16,7 +16,7 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || 'CLAUDE', {
       body: data.body || 'Hay novedades de Claude.',
-      tag: data.tag || 'supervoz',
+      tag: data.tag || 'walkie-code',
       // Con el mismo tag reemplaza al aviso anterior del canal, pero igual vuelve a sonar.
       renotify: true,
       icon: 'icon-180.png',

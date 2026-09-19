@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// supervoz: walkie-talkie entre el iPhone y Claude Code corriendo en iTerm2.
+// walkie-code: walkie-talkie entre el iPhone y Claude Code corriendo en iTerm2.
 //
 //   iPhone (miniweb) --audio--> este servidor --> whisper-server (voz a texto)
 //                                             --> iTerm2 (escribe y envía en el canal elegido)
@@ -237,14 +237,14 @@ function notifyPush(to, message) {
 }
 
 async function handlePushSubscribe(req, res) {
-  const clientId = req.headers['x-supervoz-client'] || null;
+  const clientId = req.headers['x-walkie-client'] || null;
   const { subscription, test } = await readJson(req);
   pushStore.save(subscription, clientId, deviceName(req));
   // Al abrir la app se vuelve a mandar la suscripción, sin aviso: solo para mantenerla al día.
   if (!test) return json(res, 200, { ok: true });
   log(`+ avisos push activados en ${deviceName(req)}`);
   // Un primer aviso de prueba: si el servicio de push rechaza algo (clave, JWT), se ve en el acto.
-  const result = await pushTo(pushStore.list().at(-1), { title: 'SUPERVOZ', body: 'Avisos activados. Así te llegan las respuestas con el teléfono bloqueado.', tag: 'supervoz-test', url: '/' });
+  const result = await pushTo(pushStore.list().at(-1), { title: 'WALKIE-CODE', body: 'Avisos activados. Así te llegan las respuestas con el teléfono bloqueado.', tag: 'walkie-code-test', url: '/' });
   return json(res, 200, { ok: result.ok, status: result.status, detail: result.detail || undefined });
 }
 
@@ -271,7 +271,7 @@ const readJson = async (req) => JSON.parse((await readBody(req, 2 * 1024 * 1024)
 // El token se compara en tiempo constante. Va en un header, o en la URL cuando el navegador no deja
 // poner headers (EventSource y <audio>).
 function authorized(req, url) {
-  const given = Buffer.from(String(req.headers['x-supervoz-token'] || url.searchParams.get('t') || ''));
+  const given = Buffer.from(String(req.headers['x-walkie-token'] || url.searchParams.get('t') || ''));
   const want = Buffer.from(cfg.token);
   return given.length === want.length && timingSafeEqual(given, want);
 }
@@ -358,10 +358,10 @@ async function deliver(res, { found, text, image, clientId }) {
 }
 
 // El teléfono mandó audio: se transcribe y se escribe en el canal activo.
-// Con el header X-Supervoz-Image va también la foto cargada; si no se entendió nada, igual se manda.
+// Con el header X-Walkie-Image va también la foto cargada; si no se entendió nada, igual se manda.
 async function handleTalk(req, res) {
-  const clientId = req.headers['x-supervoz-client'] || null;
-  const image = uploadedImage(req.headers['x-supervoz-image']);
+  const clientId = req.headers['x-walkie-client'] || null;
+  const image = uploadedImage(req.headers['x-walkie-image']);
   const audio = await readBody(req);
   if (audio.length < 1000 && !image) return json(res, 422, { error: 'No llegó audio.' });
 
@@ -375,7 +375,7 @@ async function handleTalk(req, res) {
 
 // "ENVIAR SOLA": la foto sin dictar nada, con el texto por defecto.
 async function handleSend(req, res) {
-  const clientId = req.headers['x-supervoz-client'] || null;
+  const clientId = req.headers['x-walkie-client'] || null;
   const { image: id, text = '' } = await readJson(req);
   const image = uploadedImage(id);
   if (!image) return json(res, 422, { error: 'No hay foto para mandar.' });
@@ -507,7 +507,7 @@ async function handleFailure(body) {
   notifyPush(limit ? null : waiting?.clientId, {
     title: limit ? 'CLAUDE · LÍMITE DE USO' : `CLAUDE · ${project}`,
     body: speech,
-    tag: limit ? 'supervoz-limit' : `supervoz-${project}`,
+    tag: limit ? 'walkie-code-limit' : `walkie-code-${project}`,
     url: '/',
   });
   log(`x ${project}: ${body.error}${reset ? ` (se renueva ${reset})` : ''}`);
@@ -541,7 +541,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Abre una ventana de iTerm2 con Claude Code en la carpeta elegida y sintoniza ese canal.
 async function handleOpen(req, res) {
-  const clientId = req.headers['x-supervoz-client'] || null;
+  const clientId = req.headers['x-walkie-client'] || null;
   const { path: rel = '' } = await readJson(req);
   const { full } = await safeDir(cfg.projectsRoot, rel);
   const session = await openClaude(full, cfg.claudeCommand);
@@ -615,7 +615,7 @@ async function handleVoice(req, res) {
 }
 
 // Abre en la Mac el panel donde se descargan voces mejoradas y premium, y explica qué tocar.
-// No hay forma soportada de descargarlas por código: lo tiene que hacer Diego en Ajustes.
+// No hay forma soportada de descargarlas por código: lo tiene que hacer el usuario en Ajustes.
 async function handleInstallVoices(res) {
   await openVoiceSettings();
   log('= abriendo Ajustes para instalar voces');
@@ -691,7 +691,7 @@ const server = http.createServer(async (req, res) => {
     if (!url.pathname.startsWith('/api/')) return await serveStatic(res, url.pathname);
     if (!authorized(req, url)) return json(res, 401, { error: 'Token inválido.' });
     // Cualquier pedido del teléfono (salvo el aviso de que se ocultó) prueba que la app está a la vista.
-    if (route !== 'POST /api/presence') presence.touch(req.headers['x-supervoz-client']);
+    if (route !== 'POST /api/presence') presence.touch(req.headers['x-walkie-client']);
 
     if (route === 'GET /api/events') return openEvents(req, res, url);
     if (route === 'GET /api/recap') return await handleRecap(res, url);
@@ -716,7 +716,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (route === 'POST /api/presence') {
-      presence.touch(req.headers['x-supervoz-client'], Boolean((await readJson(req)).visible));
+      presence.touch(req.headers['x-walkie-client'], Boolean((await readJson(req)).visible));
       return json(res, 200, { ok: true });
     }
     if (route === 'POST /api/escape') {
@@ -753,5 +753,5 @@ cleanupImages(cfg.uploadsDir).catch(() => {});
 await waitForWhisper();
 // Solo escucha en localhost: al teléfono le llega por `tailscale serve`, con HTTPS.
 server.listen(cfg.port, '127.0.0.1', () => {
-  log(`supervoz escuchando en http://127.0.0.1:${cfg.port}`);
+  log(`walkie-code escuchando en http://127.0.0.1:${cfg.port}`);
 });

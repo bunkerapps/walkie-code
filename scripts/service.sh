@@ -1,17 +1,17 @@
 #!/bin/bash
-# Maneja supervoz como agente de launchd: arranca solo al iniciar sesión y se reinicia si se cae.
+# Maneja walkie-code como agente de launchd: arranca solo al iniciar sesión y se reinicia si se cae.
 #   scripts/service.sh install | uninstall | restart | status | logs
 set -euo pipefail
 
-LABEL="net.bunkerapps.supervoz"
+LABEL="net.bunkerapps.walkie-code"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LOG="$HOME/.supervoz/supervoz.log"
+LOG="$HOME/.walkie-code/walkie-code.log"
 NODE="$(command -v node)"
 DOMAIN="gui/$(id -u)"
 
 install() {
-  mkdir -p "$(dirname "$PLIST")" "$HOME/.supervoz"
+  mkdir -p "$(dirname "$PLIST")" "$HOME/.walkie-code"
   cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -38,7 +38,7 @@ install() {
 EOF
   launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
   launchctl bootstrap "$DOMAIN" "$PLIST"
-  echo "supervoz instalado como servicio ($PLIST). Logs: $LOG"
+  echo "walkie-code instalado como servicio ($PLIST). Logs: $LOG"
 }
 
 case "${1:-}" in
@@ -46,8 +46,8 @@ case "${1:-}" in
   uninstall)
     launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
     rm -f "$PLIST"
-    echo "supervoz desinstalado." ;;
-  restart) launchctl kickstart -k "$DOMAIN/$LABEL" && echo "supervoz reiniciado." ;;
+    echo "walkie-code desinstalado." ;;
+  restart) launchctl kickstart -k "$DOMAIN/$LABEL" && echo "walkie-code reiniciado." ;;
   status) launchctl print "$DOMAIN/$LABEL" | grep -E "state =|pid =|last exit code" ;;
   logs) tail -f "$LOG" ;;
   *) echo "uso: $0 install | uninstall | restart | status | logs" >&2; exit 1 ;;

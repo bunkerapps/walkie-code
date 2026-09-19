@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { VOICE_STYLE, PROMPT_TTL_MS, isDictated, promptContextOutput } from '../lib/voice-style.js';
-import { withSupervozHooks, EVENTS } from '../lib/hook-settings.js';
+import { withWalkieHooks, EVENTS } from '../lib/hook-settings.js';
 
 const now = 1_000_000_000;
 const sent = (text, ago = 1000) => ({ text, at: now - ago });
@@ -29,12 +29,12 @@ test('la salida del hook tiene el formato de UserPromptSubmit', () => {
   assert.deepEqual(out, { hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: VOICE_STYLE } });
 });
 
-const CMD = 'node "/Users/x/Development/supervoz/hooks/claude-hook.js"';
+const CMD = 'node "/Users/x/Development/walkie-code/hooks/claude-hook.js"';
 const ajeno = { type: 'command', command: 'afplay /System/Library/Sounds/Glass.aiff' };
 
 test('el instalador registra los tres eventos sin tocar hooks ajenos', () => {
   const settings = { model: 'opus', hooks: { Stop: [{ hooks: [ajeno] }], PreToolUse: [{ matcher: 'Bash', hooks: [ajeno] }] } };
-  const out = withSupervozHooks(settings, CMD);
+  const out = withWalkieHooks(settings, CMD);
   assert.equal(out.model, 'opus');
   assert.deepEqual(out.hooks.PreToolUse, settings.hooks.PreToolUse);
   assert.deepEqual(out.hooks.Stop[0], { hooks: [ajeno] });
@@ -47,13 +47,13 @@ test('el instalador registra los tres eventos sin tocar hooks ajenos', () => {
 
 test('instalar dos veces da lo mismo, y --remove deja solo lo ajeno', () => {
   const settings = { hooks: { Stop: [{ hooks: [ajeno] }] } };
-  const once = withSupervozHooks(settings, CMD);
-  assert.deepEqual(withSupervozHooks(once, CMD), once);
-  assert.deepEqual(withSupervozHooks(once, CMD, { remove: true }), settings);
+  const once = withWalkieHooks(settings, CMD);
+  assert.deepEqual(withWalkieHooks(once, CMD), once);
+  assert.deepEqual(withWalkieHooks(once, CMD, { remove: true }), settings);
 });
 
 test('reemplaza una versión vieja del hook que estaba en otro grupo', () => {
-  const viejo = { type: 'command', command: 'node "/otra/ruta/supervoz/hooks/claude-hook.js"', timeout: 5 };
-  const out = withSupervozHooks({ hooks: { Stop: [{ hooks: [ajeno, viejo] }] } }, CMD);
+  const viejo = { type: 'command', command: 'node "/otra/ruta/walkie-code/hooks/claude-hook.js"', timeout: 5 };
+  const out = withWalkieHooks({ hooks: { Stop: [{ hooks: [ajeno, viejo] }] } }, CMD);
   assert.deepEqual(out.hooks.Stop, [{ hooks: [ajeno] }, { hooks: [{ type: 'command', command: CMD, timeout: 5 }] }]);
 });
