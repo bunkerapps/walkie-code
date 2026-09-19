@@ -12,7 +12,7 @@ import http from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
@@ -50,7 +50,23 @@ const log = (...args) => console.log(new Date().toLocaleTimeString('es-AR'), ...
 // ---------- Canales ----------
 
 // selectedId: la sesión de iTerm2 elegida deslizando en el teléfono (null = la activa en la Mac).
-let selectedId = null;
+// Se guarda en disco para que un reinicio del servidor no mande el próximo dictado a otro canal.
+const SELECTED_FILE = path.join(HOME_DIR, 'selected.json');
+let selectedId = (() => {
+  try {
+    return JSON.parse(readFileSync(SELECTED_FILE, 'utf8')).id ?? null;
+  } catch {
+    return null;
+  }
+})();
+
+function select(id) {
+  if (id === selectedId) return;
+  selectedId = id;
+  try {
+    writeFileSync(SELECTED_FILE, JSON.stringify({ id }));
+  } catch {}
+}
 
 // Terminales a las que les hablamos y todavía no respondieron.
 // Solo se leen en voz alta las respuestas de estas, y solo en el teléfono que habló.
@@ -72,7 +88,7 @@ async function resolveChannels() {
   const list = await channelsNow();
   const { channels } = list;
   // Si la sesión elegida se cerró, se vuelve a seguir la terminal activa en la Mac.
-  if (list.ok && selectedId && !channels.some((c) => c.id === selectedId)) selectedId = null;
+  if (list.ok && selectedId && !channels.some((c) => c.id === selectedId)) select(null);
   const active = channels.find((c) => c.id === selectedId) || channels.find((c) => c.current) || channels[0] || null;
   await syncHighlight(active, channels.indexOf(active));
   return { ...list, active };
@@ -521,7 +537,7 @@ async function handleFailure(body) {
 
 // Sintoniza un canal (deslizando o por voz): lo marca en la Mac y devuelve la pantalla con el anuncio.
 async function tuneTo(found, target) {
-  selectedId = target.id;
+  select(target.id);
   await syncHighlight(target, found.channels.indexOf(target));
   const payload = channelsPayload({ ...found, active: target });
   log(`= canal ${payload.active.number}: ${target.project}`);
@@ -561,7 +577,7 @@ async function handleOpen(req, res) {
   const target = found.channels.find((c) => c.id === session.id);
   if (!target) return json(res, 504, { error: 'Se abrió la terminal, pero Claude Code no arrancó.' });
 
-  selectedId = target.id;
+  select(target.id);
   const index = found.channels.indexOf(target);
   await syncHighlight(target, index);
 
