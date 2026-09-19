@@ -351,8 +351,10 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 }
 
 .ptt-ring {
-  width: min(320px, 100cqw - 16px, 100cqh - 16px);
-  aspect-ratio: 1;
+  --ptt-size: min(320px, 100cqw - 16px, 100cqh - 16px);
+  width: var(--ptt-size);
+  height: var(--ptt-size);
+  flex: none;
   border-radius: 50%;
   padding: 12px;
   background: linear-gradient(160deg, #0e100c, #2b2f27);
