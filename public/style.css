@@ -336,9 +336,12 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 
 /* ---------- Botón PTT ---------- */
 
+/* El botón se mide contra el espacio que le queda (container queries), no contra la pantalla:
+   así nunca se mete debajo de las teclas, sea cual sea el alto del teléfono. */
 .ptt {
-  flex: 1;
-  min-height: 190px;
+  flex: 1 1 0;
+  min-height: 150px;
+  container-type: size;
   display: grid;
   place-items: center;
   touch-action: none;
@@ -346,9 +349,8 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 }
 
 .ptt-ring {
-  width: min(78vw, 64vh - 150px, 320px);
+  width: min(320px, 100cqw - 16px, 100cqh - 16px);
   aspect-ratio: 1;
-  min-width: 180px;
   border-radius: 50%;
   padding: 12px;
   background: linear-gradient(160deg, #0e100c, #2b2f27);
