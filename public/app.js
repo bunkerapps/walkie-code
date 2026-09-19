@@ -89,8 +89,13 @@ function renderHint() {
   $('ptt-hint').textContent = photo ? `${hint} + FOTO` : hint;
 }
 
-function log(who, text, { muted = false } = {}) {
-  const logEl = $('log');
+// Cada canal tiene su propio historial en pantalla: al cambiar de canal se ve solo lo de ese canal
+// (antes era uno solo y lo del canal nuevo quedaba mezclado debajo de lo del anterior).
+const MAX_LOG = 40;
+const logs = new Map(); // id de canal -> [{ who, text, muted }]
+const logKey = (channel) => channel || activeId || '-';
+
+function logLine({ who, text, muted }) {
   const p = document.createElement('p');
   if (muted) p.className = 'muted';
   if (who) {
@@ -100,10 +105,33 @@ function log(who, text, { muted = false } = {}) {
   }
   p.append(text);
   p.addEventListener('click', () => openReader(who, text));
-  logEl.append(p);
-  while (logEl.children.length > 12) logEl.firstChild.remove();
+  return p;
+}
+
+// `channel`: a qué canal pertenece el mensaje (por defecto, el que está en pantalla).
+function log(who, text, { muted = false, channel } = {}) {
+  const key = logKey(channel);
+  const list = logs.get(key) || [];
+  const entry = { who, text, muted };
+  list.push(entry);
+  while (list.length > MAX_LOG) list.shift();
+  logs.set(key, list);
+  if (key !== logKey()) return;
+  const logEl = $('log');
+  logEl.append(logLine(entry));
+  while (logEl.children.length > MAX_LOG) logEl.firstChild.remove();
   logEl.scrollTop = logEl.scrollHeight;
 }
+
+// Muestra el historial del canal que quedó en pantalla.
+function renderLog() {
+  const logEl = $('log');
+  logEl.replaceChildren(...(logs.get(logKey()) || []).map(logLine));
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// El canal de un mensaje que llega con el nombre del proyecto.
+const channelOf = (project) => channels.find((c) => c.project === project)?.id;
 
 function fail(message) {
   sfx.error();
@@ -141,8 +169,12 @@ function applyChannels(payload) {
   // se muestra de qué se trata esa sesión.
   if (payload.active && payload.active.id !== announcedId) {
     announcedId = payload.active.id;
-    if (payload.active.title) log(`CH${String(payload.active.number).padStart(2, '0')}`, payload.active.title, { muted: true });
-    showRecap(payload.active.id);
+    renderLog();
+    // El título y el resumen, solo la primera vez que se ve el canal: al volver ya está su historial.
+    if (!logs.get(payload.active.id)?.length) {
+      if (payload.active.title) log(`CH${String(payload.active.number).padStart(2, '0')}`, payload.active.title, { muted: true });
+      showRecap(payload.active.id);
+    }
   }
 }
 
@@ -155,10 +187,12 @@ async function fetchRecap(id, speak = false) {
 
 async function showRecap(id) {
   const recap = await fetchRecap(id).catch(() => null);
-  if (!recap || recap.empty || id !== activeId) return;
-  if (recap.prompt) log('ÚLTIMO · VOS', recap.prompt, { muted: true });
-  if (recap.working) log('CLAUDE', 'TODAVÍA ESTÁ TRABAJANDO…', { muted: true });
-  else if (recap.reply) log('CLAUDE', recap.reply, { muted: true });
+  if (!recap || recap.empty) return;
+  // Va al historial de ese canal aunque, mientras llegaba, se haya cambiado a otro.
+  if (recap.prompt) log('ÚLTIMO · VOS', recap.prompt, { muted: true, channel: id });
+  if (recap.working) log('CLAUDE', 'TODAVÍA ESTÁ TRABAJANDO…', { muted: true, channel: id });
+  else if (recap.reply) log('CLAUDE', recap.reply, { muted: true, channel: id });
+  if (id !== activeId) return;
   setNowPlaying(recap.working ? 'Todavía está trabajando…' : recap.reply || '');
 }
 
@@ -181,6 +215,7 @@ async function switchChannel(direction) {
   const next = channels[(index + direction + channels.length) % channels.length];
   activeId = next.id;
   renderChannel(direction);
+  renderLog();
   sfx.click();
   try {
     const res = await api('/api/channel', {
@@ -1356,7 +1391,7 @@ function onIncoming(label) {
     const mine = !to || to === clientId;
     // También al volver desde la notificación (replay), mientras el hook lo siga esperando (~2 minutos).
     if (mine && data.permission && (!replay || Date.now() - (at || 0) < 125 * 1000)) showPermission(data);
-    log(project ? `${label} ${project.toUpperCase()}` : label, text, { muted: !mine });
+    log(project ? `${label} ${project.toUpperCase()}` : label, text, { muted: !mine, channel: channelOf(project) });
     // Si habló otro dispositivo, acá solo se muestra el texto.
     if (!mine) return;
     lastClip = audio;
@@ -1390,7 +1425,7 @@ function onNotice(e) {
   if ((notice.kind === 'limit' || notice.kind === 'error') && state === 'waiting') setState('idle');
   if (notice.to && notice.to !== clientId && notice.kind === 'error') return;
   const who = `${NOTICE_LABELS[notice.kind] || 'AVISO'} ${notice.project.toUpperCase()}`;
-  log(notice.duration ? `${who} · ${notice.duration}` : who, notice.text);
+  log(notice.duration ? `${who} · ${notice.duration}` : who, notice.text, { channel: channelOf(notice.project) });
   // Los que se recuperan al reconectar ya pasaron: solo se muestran.
   if (!notice.audio || Date.now() - notice.at > NOTICE_FRESH_MS) return;
   noticeQueue.push(notice);
