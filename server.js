@@ -204,6 +204,8 @@ async function transcribe(audio, mime) {
   form.append('file', new Blob([audio], { type: mime }), `audio.${ext}`);
   form.append('response_format', 'json');
   form.append('temperature', '0.0');
+  // Explícito en cada pedido: sin esto, audios con ruido a veces salían detectados como otro idioma.
+  form.append('language', cfg.language);
   const res = await fetch(`http://127.0.0.1:${cfg.whisperPort}/inference`, { method: 'POST', body: form });
   if (!res.ok) throw new Error(`whisper respondió ${res.status}`);
   const { text } = await res.json();
