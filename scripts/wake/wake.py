@@ -2,8 +2,8 @@
 """Wake-on-LAN relay for Walkie-Code.
 
 A sleeping Mac can't serve the walkie web, so this tiny server runs on an
-always-on device in the same LAN (e.g. an old Android phone with Termux) and
-sends the magic packet for it. Standard library only.
+always-on device in the same LAN with Python 3 (a Raspberry Pi, a NAS, an old
+Android phone with Termux...) and sends the magic packet for it. Standard library only.
 
 Config (env vars):
   WAKE_MACS   comma-separated MAC addresses to wake (required)

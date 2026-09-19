@@ -20,7 +20,9 @@ Everything runs on your own machines. Speech-to-text runs locally with Whisper, 
 - **Notifications.** Web Push when the phone is locked, alerts when a long task finishes in any channel, and a warning when Claude hits its usage limit (with the reset time), so the walkie never waits forever.
 - **Photos.** Snap a picture of a bug or a design and send it with your next message.
 - **Open Claude anywhere.** Pick a folder from the phone and a new iTerm2 window starts Claude Code there.
-- **Voices.** Choose any installed macOS voice and speed, including enhanced and premium ones, and set the volume of each sound effect.
+- **Voices.** Choose any installed macOS voice and speed, including enhanced and premium ones, and set the voice volume (applied on the Mac, since iOS ignores it) and the volume of each sound effect.
+- **Wake the Mac.** Optional: [Walkie Wake](scripts/wake/README.md) is a tiny Python relay for any always-on device on your network (a Raspberry Pi, an old phone…) that wakes the Mac with Wake-on-LAN.
+- **Survives restarts.** If the server restarts mid-turn, the answer still reaches the phone that asked.
 
 The UI is in Spanish (Rioplatense) today. Translations are very welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
