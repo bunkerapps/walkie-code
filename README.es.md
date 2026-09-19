@@ -78,7 +78,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
   - Solo cuenta si la frase **empieza** con el comando y es corta: "el canal 3 no anda" va a Claude. Si hay dos canales parecidos, lo dice y no manda nada.
 - En la Mac, la pestaña del canal sintonizado se pinta de **naranja** y lleva la marca **"📻 CH03 · proyecto"** mientras haya un teléfono conectado.
 - Al abrir la app y al cambiar de canal, la pantalla muestra un **resumen**: el último pedido y la última respuesta de esa sesión, aunque se hayan escrito desde la Mac. Tocando un mensaje se abre completo, con scroll.
-- **Nombre propio:** manteniendo apretado el nombre del canal se le pone un nombre a esa carpeta. Se usa en el walkie, en la voz, en la marca de la Mac y en el explorador.
+- **Nombre propio:** manteniendo apretado el nombre del canal se le pone un nombre a ese canal (a esa sesión, no a la carpeta: en una misma carpeta puede haber varias). Se usa en el walkie, en la voz y en la marca de la Mac. Vacío vuelve al nombre de la carpeta.
 - **＋** abre un explorador de carpetas dentro de `projectsRoot`. **ABRIR CLAUDE ACÁ** abre una ventana nueva de iTerm2 con Claude Code en esa carpeta y sintoniza el canal. Si Claude pregunta si confiás en la carpeta, se contesta "sí".
 
 - Para **cerrar un canal**, tocá **＋** y después **✕ CERRAR** (dos toques, para no cerrarlo sin querer): sale de Claude Code con `/exit` y cierra la pestaña de iTerm2.
@@ -126,7 +126,7 @@ Si la Mac duerme, Walkie-Code no carga. [Walkie Wake](scripts/wake/README.md) es
 | `voiceStyle` | `true` | Pedir respuestas para escuchar en lo dictado |
 | `notices` / `notifyAfterSeconds` | `true` / `60` | Avisos de otros canales y duración mínima del turno |
 | `projectsRoot` | `~/Development` | Única carpeta donde el teléfono puede abrir Claude |
-| `names` | `{}` | Nombres propios de cada carpeta (se ponen desde el teléfono) |
+| `channelNames` | `{}` | Nombre propio de cada canal, por sesión de iTerm2 (se pone desde el teléfono) |
 | `allowedHosts` | `[]` | Otros nombres de host aceptados, además de localhost y `*.ts.net` |
 | `pushSubject` | `https://bunkerapps.net` | Contacto de la firma VAPID (`mailto:` o `https:`) |
 

@@ -82,7 +82,7 @@ const turns = new Map(); // tty -> ms
 // si se sintoniza ese canal, "sí" o "no" contestan el menú.
 const asking = new Set();
 
-const channelsNow = () => listChannels(cfg.names || {});
+const channelsNow = () => listChannels(cfg.names || {}, cfg.channelNames || {});
 
 async function resolveChannels() {
   const list = await channelsNow();
@@ -664,7 +664,8 @@ async function handleInstallVoices(res) {
   return json(res, 200, { ok: true, audio: await speak(speech) });
 }
 
-// Nombre propio para la carpeta de un canal. Vacío = vuelve al nombre de la carpeta.
+// Nombre propio de un canal (de esa sesión, no de la carpeta: en una carpeta puede haber varias).
+// Vacío = vuelve al nombre de la carpeta.
 async function handleName(req, res) {
   const { id, name = '' } = await readJson(req);
   const found = await channelsNow();
@@ -672,11 +673,18 @@ async function handleName(req, res) {
   if (!target?.cwd) return json(res, 404, { error: 'Ese canal ya no existe.' });
 
   const clean = String(name).replace(/\s+/g, ' ').trim().slice(0, 40);
-  cfg.names = { ...(cfg.names || {}) };
-  if (clean) cfg.names[target.cwd] = clean;
-  else delete cfg.names[target.cwd];
-  saveConfig({ names: cfg.names });
-  log(`= nombre de ${target.cwd}: ${clean || '(el de la carpeta)'}`);
+  // Se guardan solo los canales abiertos: los ids de sesiones cerradas no vuelven.
+  const open = new Set(found.channels.map((c) => c.id));
+  cfg.channelNames = Object.fromEntries(Object.entries(cfg.channelNames || {}).filter(([sid]) => open.has(sid)));
+  if (clean) cfg.channelNames[id] = clean;
+  else delete cfg.channelNames[id];
+  // Si la carpeta tenía un nombre viejo (de cuando se nombraban carpetas), deja de pisar a este canal.
+  if (cfg.names?.[target.cwd]) {
+    cfg.names = { ...cfg.names };
+    delete cfg.names[target.cwd];
+  }
+  saveConfig({ channelNames: cfg.channelNames, names: cfg.names || {} });
+  log(`= nombre del canal ${target.folder}: ${clean || '(el de la carpeta)'}`);
 
   const updated = await resolveChannels();
   const renamed = updated.channels.find((c) => c.id === id) || updated.active;

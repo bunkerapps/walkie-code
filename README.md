@@ -91,7 +91,7 @@ Useful commands: `scripts/service.sh restart | status | logs | uninstall` and `n
 | `voiceStyle` | `true` | Ask Claude for listen-friendly answers to dictated prompts |
 | `notices` / `notifyAfterSeconds` | `true` / `60` | Alerts from other channels, and the minimum turn length |
 | `projectsRoot` | `~/Development` | The only folder tree the phone can open Claude in |
-| `names` | `{}` | Custom channel names per folder (set from the phone) |
+| `channelNames` | `{}` | Custom channel names, per iTerm2 session (set from the phone) |
 | `allowedHosts` | `[]` | Extra `Host` names accepted besides localhost and `*.ts.net` |
 | `pushSubject` | `https://bunkerapps.net` | VAPID contact (`mailto:` or `https:`) |
 
