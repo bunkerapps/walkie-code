@@ -50,7 +50,7 @@ Claude Code ──hooks──▶ server.js ──say──▶ audio ──SSE─
 ## Setup
 
 ```sh
-git clone https://github.com/<you>/walkie-code.git
+git clone https://github.com/bunkerapps/walkie-code.git
 cd walkie-code
 
 # 1. Whisper model
