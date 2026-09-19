@@ -31,6 +31,9 @@ La primera vez macOS pide permiso de Automatización para que `node` controle iT
 
 - **PTT**: mantener, esperar el bip, hablar y soltar. Se envía solo.
 - **Canales**: cada sesión de iTerm2 con Claude Code es un canal. Deslizá la pantalla a la izquierda o a la derecha para cambiar; se anuncia por voz y se muestra de qué trata la sesión. Si no elegiste ninguno, sigue a la terminal activa en la Mac. Las terminales con una shell común no aparecen, para no ejecutar comandos dictados.
+- **Canal por voz**: diciendo por el PTT "canal superprecio", "canal tres", "cambiá al canal de la landing" o "sintonizá bunkerapps", el walkie cambia de canal en vez de mandarle el texto a Claude (se ve "CANAL → CH03 …" y se anuncia igual que deslizando). Busca en el nombre del proyecto, la carpeta y la tarea en curso, sin importar mayúsculas, acentos ni espacios ("super precio" = "superprecio"), y tolera errores chicos de Whisper ("Kick Way" = "Quickway"). Los números van en letras o en dígitos. Si no encuentra el canal o hay dos parecidos, lo dice ("Hay dos canales parecidos: canal 3, supervoz; canal 4, supervoz 2. Decí el número.") y no le manda nada a Claude.
+  - Solo cuenta si la frase **empieza** con el comando y es corta: "el canal 3 no anda" o "canal 3 y decile que corra los tests" van a Claude.
+  - Sin la palabra canal ("pasame a bunkerapps", "andá al tres") solo cambia si el nombre del proyecto o de la carpeta es igual o empieza con lo dicho; si no, la frase va a Claude como siempre ("cambiá a TypeScript el archivo"). Ante la duda, decí "canal …".
 - En la Mac, la pestaña del canal sintonizado se pinta de naranja y lleva la marca "📻 CH03" mientras haya un teléfono conectado.
 - **＋** abre un explorador de carpetas dentro de `projectsRoot` (por defecto `~/Development`). "ABRIR CLAUDE ACÁ" abre una ventana nueva de iTerm2 con Claude Code en esa carpeta y sintoniza el canal. Si Claude pregunta si confiás en la carpeta, se contesta con "sí".
 - **Nombre propio**: manteniendo apretado el nombre del canal en la pantalla se le pone un nombre a esa carpeta (vacío = el de la carpeta). Se guarda en `names` de la configuración y se usa en el walkie, en la voz, en la marca de la Mac y en el explorador.
@@ -46,6 +49,6 @@ Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulari
 
 ## Desarrollo
 
-`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) y del explorador de carpetas (que no se pueda salir de la raíz).
+`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso), de los comandos de canal por voz (`lib/commands.js`: qué frases son un cambio de canal y a qué canal apuntan) y del explorador de carpetas (que no se pueda salir de la raíz).
 
 Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar, `release.m4a` al soltar, `rx.m4a` cuando llega una respuesta.

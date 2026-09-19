@@ -16,6 +16,7 @@ import { toSpeech, cleanTranscript, permissionAnswer } from './lib/speech.js';
 import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices } from './lib/voices.js';
+import { parseChannelCommand, findChannel, missSpeech } from './lib/commands.js';
 import { synthesize, getClip } from './lib/tts.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -225,6 +226,10 @@ async function handleTalk(req, res) {
   const { active } = found;
   if (!active) return json(res, 409, { error: channelsPayload(found).error, text });
 
+  // "Canal superprecio", "canal tres", "pasame a bunkerapps": se cambia de canal en vez de escribir.
+  const tuned = await tuneByVoice(found, text);
+  if (tuned) return json(res, 200, { text, ...tuned });
+
   // Si Claude está esperando un permiso, "sí" o "no" contestan el menú en vez de escribirse.
   const waiting = pending.get(active.tty);
   const answer = waiting?.permission ? permissionAnswer(text) : null;
@@ -234,6 +239,24 @@ async function handleTalk(req, res) {
   pending.set(active.tty, { project: active.project, clientId, permission: false });
   log(`> ${active.project}: ${answer ? `[permiso: ${answer}]` : text}`);
   return json(res, 200, { text, project: active.project, permission: answer });
+}
+
+// Si el texto es un cambio de canal, lo hace (o avisa por qué no) y devuelve la respuesta para el
+// teléfono. Devuelve null si el texto es para Claude.
+async function tuneByVoice(found, text) {
+  const command = parseChannelCommand(text);
+  if (!command) return null;
+  const screen = found.channels.map(publicChannel);
+  const result = findChannel(command, screen);
+  if (result.channel) {
+    const target = found.channels.find((c) => c.id === result.channel.id);
+    return { switched: true, ...(await tuneTo(found, target)) };
+  }
+  // "Pasame a TypeScript" sin la palabra canal y sin coincidencia es un pedido para Claude.
+  if (!command.strong && !result.candidates.length) return null;
+  const message = missSpeech(command, result, screen.length);
+  log(`? canal por voz: "${text}" -> ${message}`);
+  return { switched: false, message, ...channelsPayload(found), audio: await speak(message) };
 }
 
 // Lo llama hooks/claude-hook.js cuando Claude Code termina de responder o pide permiso.
@@ -261,16 +284,21 @@ async function handleHook(req, res) {
   return json(res, 200, { ok: true });
 }
 
+// Sintoniza un canal (deslizando o por voz): lo marca en la Mac y devuelve la pantalla con el anuncio.
+async function tuneTo(found, target) {
+  selectedId = target.id;
+  await syncHighlight(target, found.channels.indexOf(target));
+  const payload = channelsPayload({ ...found, active: target });
+  log(`= canal ${payload.active.number}: ${target.project}`);
+  return { ...payload, audio: await speak(`Canal ${payload.active.number}. ${target.project}.`) };
+}
+
 async function handleSelect(req, res) {
   const { id } = await readJson(req);
   const found = await resolveChannels();
   const target = found.channels.find((c) => c.id === id);
   if (!target) return json(res, 404, { error: 'Ese canal ya no existe.', ...channelsPayload(found) });
-  selectedId = id;
-  await syncHighlight(target, found.channels.indexOf(target));
-  const payload = channelsPayload({ ...found, active: target });
-  log(`= canal ${payload.active.number}: ${target.project}`);
-  return json(res, 200, { ...payload, audio: await speak(`Canal ${payload.active.number}. ${target.project}.`) });
+  return json(res, 200, await tuneTo(found, target));
 }
 
 async function handleFolders(res, url) {

@@ -425,11 +425,30 @@ async function send(blob) {
       if (body.text) log('VOS', body.text, { muted: true });
       return fail((body.error || `ERROR ${res.status}`).toUpperCase());
     }
+    if ('switched' in body) return tunedByVoice(body);
     log('VOS', body.permission ? `${body.text} (permiso)` : body.text);
     setState('waiting');
   } catch {
     fail('SIN CONEXIÓN CON LA MAC');
   }
+}
+
+// Dijo "canal superprecio": el servidor ya sintonizó (o explica por qué no) y no le escribió a Claude.
+function tunedByVoice(body) {
+  log('VOS', body.text, { muted: true });
+  setState('idle');
+  if (!body.switched) {
+    sfx.error();
+    log('CANAL', (body.message || 'NO ENCONTRÉ ESE CANAL').toUpperCase());
+  } else {
+    const before = channels.findIndex((c) => c.id === activeId);
+    applyChannels(body);
+    const after = channels.findIndex((c) => c.id === activeId);
+    renderChannel(after < before ? -1 : 1);
+    sfx.click();
+    log('CANAL →', `CH${String(body.active.number).padStart(2, '0')} ${body.active.project.toUpperCase()}`);
+  }
+  if (body.audio) play(body.audio, { squelch: false, rx: false });
 }
 
 // ---------- Entrada: dedo o barra espaciadora ----------
