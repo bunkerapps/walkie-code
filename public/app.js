@@ -1281,9 +1281,14 @@ document.addEventListener('visibilitychange', refreshUsage);
 
 // ---------- Canal con la Mac ----------
 
+// Lo recuperado al volver a la app (replay) no suena todo junto: solo lo último, y si es reciente.
+const REPLAY_FRESH_MS = 15 * 60 * 1000;
+let replayTimer = 0;
+
 function onIncoming(label) {
   return (e) => {
-    const { text, audio, project, to } = JSON.parse(e.data);
+    rememberEvent(e);
+    const { text, audio, project, to, replay, at } = JSON.parse(e.data);
     const mine = !to || to === clientId;
     log(project ? `${label} ${project.toUpperCase()}` : label, text, { muted: !mine });
     // Si habló otro dispositivo, acá solo se muestra el texto.
@@ -1292,7 +1297,9 @@ function onIncoming(label) {
     setNowPlaying(text);
     setTimeout(refreshUsage, 5000); // la barra de estado de Claude Code se actualiza al terminar el turno
     if (state === 'waiting' || label === 'PERMISO') setState('idle');
-    play(audio);
+    if (!replay) return play(audio);
+    clearTimeout(replayTimer);
+    if (Date.now() - (at || 0) < REPLAY_FRESH_MS) replayTimer = setTimeout(() => play(audio), 300);
   };
 }
 
@@ -1311,6 +1318,7 @@ const audioBusy = () =>
 const NOTICE_LABELS = { permission: 'PERMISO', limit: 'LÍMITE', error: 'ERROR' };
 
 function onNotice(e) {
+  rememberEvent(e);
   const notice = JSON.parse(e.data);
   // Límite de uso o error de la API: Claude ya no va a responder, el walkie deja de esperar.
   if ((notice.kind === 'limit' || notice.kind === 'error') && state === 'waiting') setState('idle');
@@ -1332,8 +1340,28 @@ function flushNotices() {
   play(notice.audio, { squelch: false, rx: false, delay: 350, quiet: true });
 }
 
+// Último evento recibido, guardado en el teléfono: si iOS recarga la app (al tocar una notificación),
+// al reconectar se piden los que llegaron mientras tanto.
+const LAST_EVENT_KEY = 'walkie-code-last-event';
+function rememberEvent(e) {
+  try {
+    if (e.lastEventId) localStorage.setItem(LAST_EVENT_KEY, e.lastEventId);
+  } catch {}
+}
+function lastSeenEvent() {
+  try {
+    return localStorage.getItem(LAST_EVENT_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+let events = null;
+
 function connect() {
-  const events = new EventSource(`/api/events?t=${encodeURIComponent(token)}&c=${clientId}`);
+  events?.close();
+  const since = lastSeenEvent();
+  events = new EventSource(`/api/events?t=${encodeURIComponent(token)}&c=${clientId}${since ? `&since=${since}` : ''}`);
   events.onopen = () => (radio.dataset.link = 'on');
   events.onerror = () => (radio.dataset.link = 'off');
   events.addEventListener('reply', onIncoming('CLAUDE'));
@@ -1467,6 +1495,8 @@ document.addEventListener('visibilitychange', () => {
   requestWakeLock();
   refreshChannels();
   clearNotifications();
+  // En segundo plano iOS corta la conexión sin avisar: se reconecta pidiendo lo que llegó mientras tanto.
+  if (token) connect();
 });
 
 if (!token) {

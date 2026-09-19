@@ -133,9 +133,12 @@ function channelsPayload({ channels, active, error }) {
 const clients = new Map(); // res -> { clientId, device }
 const history = [];
 let seq = 0;
+// Los ids llevan una marca de este arranque: si el servidor se reinicia, la numeración vuelve a 1 y el
+// teléfono no debe confundir los eventos nuevos con los que ya vio.
+const BOOT = Date.now().toString(36);
 
 function broadcast(type, data) {
-  const ev = { id: ++seq, type, data: { ...data, at: Date.now() } };
+  const ev = { id: `${BOOT}.${++seq}`, type, data: { ...data, at: Date.now() } };
   history.push(ev);
   if (history.length > 30) history.shift();
   for (const res of clients.keys()) sendEvent(res, ev);
@@ -158,9 +161,15 @@ function openEvents(req, res, url) {
     Connection: 'keep-alive',
   });
   res.write('retry: 2000\n\n');
-  // Si el teléfono se bloqueó y reconecta, recupera lo que se perdió.
-  const lastId = Number(req.headers['last-event-id'] || 0);
-  if (lastId) for (const ev of history) if (ev.id > lastId) sendEvent(res, ev);
+  // Si el teléfono se bloqueó y reconecta, recupera lo que se perdió. Last-Event-ID lo manda el navegador
+  // al reconectar solo; ?since= lo manda la app cuando iOS la recargó (por ejemplo al tocar una notificación).
+  const since = String(req.headers['last-event-id'] || url.searchParams.get('since') || '');
+  if (since) {
+    // Mismo arranque: lo posterior a ese id. De otro arranque: todo lo que hay desde que volvió a arrancar.
+    const [boot, n] = since.split('.');
+    const after = boot === BOOT ? Number(n) : 0;
+    for (const ev of history) if (Number(ev.id.split('.')[1]) > after) sendEvent(res, { ...ev, data: { ...ev.data, replay: true } });
+  }
 
   const meta = { clientId: url.searchParams.get('c'), device: deviceName(req) };
   clients.set(res, meta);
