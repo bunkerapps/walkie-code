@@ -211,3 +211,11 @@ test('lo que se dice cuando no se puede cambiar', () => {
     'Hay dos canales parecidos: canal 3, supervoz; canal 4, supervoz 2. Decí el número.',
   );
 });
+
+test('las muletillas del principio no tapan el cambio de canal', () => {
+  assert.equal(parse('Bien, cámbiame al canal 4.').number, 4);
+  assert.equal(parse('Dale, canal superprecio').query, 'superprecio');
+  assert.equal(parse('Bueno, a ver, pasame al canal dos').number, 2);
+  assert.equal(parse('Bien, el canal 3 no anda'), null);
+  assert.equal(parse('Bueno, volvé a correr los tests'), null);
+});
