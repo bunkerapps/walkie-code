@@ -96,11 +96,15 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 
 ### Voces
 
-- Tocando el **parlante** (VOZ) se elige la voz y la velocidad, entre las voces instaladas en la Mac y ordenadas por calidad (premium, mejorada, estándar). Al final está **VOZ DEL SISTEMA**, la que esté elegida en Ajustes.
+- Tocando **AJUSTES** (o el parlante) se elige la voz y la velocidad, entre las voces instaladas en la Mac y ordenadas por calidad (premium, mejorada, estándar). Al final está **VOZ DEL SISTEMA**, la que esté elegida en Ajustes.
 - **INSTALAR MÁS VOCES** abre en la Mac *Ajustes del Sistema › Accesibilidad › Lectura y voz* y te dice qué tocar. macOS no permite descargar voces por programa: se bajan a mano desde *Voz del sistema › Administrar voces…*, y aparecen solas en la lista.
 - **VOLUMEN DE VOZ**, debajo de la velocidad, va de 20 a 300 % y se guarda en cada teléfono. Safari en iOS ignora el volumen del audio, así que la ganancia la aplica la Mac con `ffmpeg`.
 - **VOLUMEN DE EFECTOS**, en el mismo panel, ajusta por separado el sonido de apretar, soltar, la respuesta y los avisos (de mudo a 150 %). Se guarda en cada teléfono.
 - Las voces de Siri no están disponibles para `say`. La única vía es elegir una como voz del sistema y usar VOZ DEL SISTEMA (experimental).
+
+### Barra de vida
+
+La barrita vertical del costado derecho muestra cuánto queda del límite de uso de Claude en la ventana de 5 horas: verde, ámbar y roja. Tocándola, la pantalla dice cuándo se renueva y cuánto queda de la semana. El dato sale de la barra de estado de Claude Code (`hooks/statusline.js`), que `install-hooks` instala solo si no tenés otra.
 
 ### Despertar la Mac
 

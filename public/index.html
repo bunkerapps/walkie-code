@@ -21,6 +21,9 @@
 <body>
   <main class="radio" data-state="idle" data-link="off">
     <div class="antenna" aria-hidden="true"></div>
+    <button type="button" class="life" id="life" hidden aria-label="Uso de Claude: cuánto queda del límite">
+      <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </button>
 
     <header class="faceplate">
       <div class="brand">
@@ -30,8 +33,8 @@
       <div class="faceplate-right">
         <button type="button" class="side-key" id="photo-key" aria-label="Adjuntar una foto para Claude">FOTO</button>
         <input type="file" id="photo-input" accept="image/*" hidden>
-        <button type="button" class="alerts" id="push" data-push="off" aria-pressed="false" aria-label="Avisos con el teléfono bloqueado">
-          <span class="alerts-dot" aria-hidden="true"></span>AVISOS
+        <button type="button" class="alerts settings-key" id="settings-key" aria-label="Ajustes de voz, volumen y avisos">
+          <span class="settings-gear" aria-hidden="true">⚙</span>AJUSTES
         </button>
         <button type="button" class="knob" id="reload" aria-label="Recargar">↻</button>
         <span class="led" aria-hidden="true"></span>
@@ -99,11 +102,15 @@
       <button type="button" class="picker-open" id="picker-open">▶ ABRIR CLAUDE ACÁ</button>
     </section>
 
-    <section class="picker" id="voices" hidden aria-label="Voz de las respuestas">
+    <section class="picker" id="voices" hidden aria-label="Ajustes">
       <header class="picker-head">
-        <span class="picker-path">VOZ</span>
+        <span class="picker-path">AJUSTES</span>
         <button type="button" class="picker-btn" id="voices-close" aria-label="Cerrar">✕</button>
       </header>
+      <div class="rate">
+        <span class="rate-label">AVISOS CON EL TELÉFONO BLOQUEADO</span>
+        <button type="button" class="picker-btn picker-toggle" id="push" data-push="off" aria-pressed="false" aria-label="Avisos con el teléfono bloqueado">NO</button>
+      </div>
       <div class="rate">
         <button type="button" class="picker-btn" id="rate-down" aria-label="Más lento">−</button>
         <span class="rate-label" id="rate-label">VELOCIDAD</span>

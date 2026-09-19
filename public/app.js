@@ -1129,8 +1129,7 @@ function setFx(name, value) {
 const VOICE_VOL_STEP = 0.2;
 
 function renderVoiceVolume() {
-  const cells = Math.round((voiceVolume / VOICE_VOL_MAX) * 10);
-  $('voice-vol-level').textContent = `${'▮'.repeat(cells).padEnd(10, '▯')} ${Math.round(voiceVolume * 100)}%`;
+  $('voice-vol-level').textContent = `${Math.round(voiceVolume * 100)} %`;
 }
 
 // Cambia el volumen de la voz, lo guarda y repite la última respuesta para escucharlo.
@@ -1157,6 +1156,7 @@ $('fx-toggle').addEventListener('click', () => {
 });
 
 $('voice-open').addEventListener('click', openVoices);
+$('settings-key').addEventListener('click', openVoices);
 $('voices-close').addEventListener('click', () => {
   voicesPanel.hidden = true;
   stopVoicesPoll();
@@ -1165,6 +1165,58 @@ $('voices-close').addEventListener('click', () => {
 $('voices-install').addEventListener('click', installVoices);
 $('rate-down').addEventListener('click', () => voiceState && chooseVoice({ rate: voiceState.rate - RATE_STEP }));
 $('rate-up').addEventListener('click', () => voiceState && chooseVoice({ rate: voiceState.rate + RATE_STEP }));
+
+// ---------- Barra de vida: límite de uso de Claude ----------
+//
+// La barra de estado de Claude Code (hooks/statusline.js) guarda en la Mac cuánto se usó de la ventana
+// de 5 horas y de la semanal. Acá se muestra lo que QUEDA de la de 5 horas; tocándola se lee el detalle.
+
+let usage = null;
+const hhmm = (iso) => new Date(iso).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+const dayTime = (iso) => new Date(iso).toLocaleString('es-AR', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+
+// Si ya pasó la hora de renovación, la ventana volvió a cero aunque el dato sea viejo.
+function remaining(win) {
+  if (!win) return null;
+  if (win.resetsAt && Date.now() > new Date(win.resetsAt).getTime()) return 100;
+  return Math.max(0, 100 - win.used);
+}
+
+function renderLife() {
+  const life = $('life');
+  const left = remaining(usage?.fiveHour) ?? remaining(usage?.sevenDay);
+  life.hidden = left === null;
+  radio.dataset.life = left === null ? 'off' : 'on';
+  if (left === null) return;
+  const cells = Math.ceil(left / 10);
+  life.querySelectorAll('i').forEach((cell, i) => cell.classList.toggle('on', i < cells));
+  life.dataset.level = left > 50 ? 'high' : left > 20 ? 'mid' : 'low';
+  // Sin datos nuevos en 6 horas (Claude Code cerrado): se atenúa.
+  life.toggleAttribute('data-stale', Date.now() - new Date(usage.at).getTime() > 6 * 3600e3);
+  life.setAttribute('aria-label', `Queda ${Math.round(left)} % del límite de uso de Claude`);
+}
+
+async function refreshUsage() {
+  if (!token || document.hidden) return;
+  try {
+    usage = (await (await api('/api/usage')).json()).usage;
+  } catch {}
+  renderLife();
+}
+
+$('life').addEventListener('click', () => {
+  if (!usage) return;
+  const parts = [];
+  const five = remaining(usage.fiveHour);
+  const week = remaining(usage.sevenDay);
+  if (five !== null) parts.push(`5 H: QUEDA ${Math.round(five)} %${usage.fiveHour.resetsAt && five < 100 ? `, SE RENUEVA ${hhmm(usage.fiveHour.resetsAt)}` : ''}`);
+  if (week !== null) parts.push(`SEMANA: QUEDA ${Math.round(week)} %${usage.sevenDay.resetsAt && week < 100 ? `, ${dayTime(usage.sevenDay.resetsAt).toUpperCase()}` : ''}`);
+  log('USO', parts.join(' · '));
+});
+
+refreshUsage();
+setInterval(refreshUsage, 60_000);
+document.addEventListener('visibilitychange', refreshUsage);
 
 // ---------- Canal con la Mac ----------
 
@@ -1177,6 +1229,7 @@ function onIncoming(label) {
     if (!mine) return;
     lastClip = audio;
     setNowPlaying(text);
+    setTimeout(refreshUsage, 5000); // la barra de estado de Claude Code se actualiza al terminar el turno
     if (state === 'waiting' || label === 'PERMISO') setState('idle');
     play(audio);
   };
@@ -1237,6 +1290,7 @@ let pushKey = null;
 
 const setPush = (mode) => {
   pushButton.dataset.push = mode;
+  pushButton.textContent = mode === 'on' ? 'SÍ' : mode === 'na' ? 'N/D' : mode === 'busy' ? '…' : 'NO';
   pushButton.setAttribute('aria-pressed', String(mode === 'on'));
 };
 

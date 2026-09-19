@@ -729,6 +729,10 @@ const server = http.createServer(async (req, res) => {
     if (route !== 'POST /api/presence') presence.touch(req.headers['x-walkie-client']);
 
     if (route === 'GET /api/events') return openEvents(req, res, url);
+    if (route === 'GET /api/usage') {
+      const usage = await readFile(path.join(HOME_DIR, 'usage.json'), 'utf8').then(JSON.parse).catch(() => null);
+      return json(res, 200, { usage });
+    }
     if (route === 'GET /api/recap') return await handleRecap(res, url);
     if (route === 'GET /api/channels') return json(res, 200, channelsPayload(await resolveChannels()));
     if (route === 'POST /api/channel') return await handleSelect(req, res);
