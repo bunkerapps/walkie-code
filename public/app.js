@@ -123,6 +123,7 @@ function renderChannel(direction) {
   $('ch').textContent = active ? `CH${String(index + 1).padStart(2, '0')}` : 'CH--';
   $('project').textContent = active ? active.project : 'SIN CLAUDE';
   $('ch-nav').textContent = channels.length > 1 ? `◂${index + 1}/${channels.length}▸` : '';
+  setNowPlaying();
   if (direction) {
     lcd.classList.remove('swipe-next', 'swipe-prev');
     void lcd.offsetWidth;
@@ -158,6 +159,7 @@ async function showRecap(id) {
   if (recap.prompt) log('ÚLTIMO · VOS', recap.prompt, { muted: true });
   if (recap.working) log('CLAUDE', 'TODAVÍA ESTÁ TRABAJANDO…', { muted: true });
   else if (recap.reply) log('CLAUDE', recap.reply, { muted: true });
+  setNowPlaying(recap.working ? 'Todavía está trabajando…' : recap.reply || '');
 }
 
 async function refreshChannels() {
@@ -346,7 +348,11 @@ const player = new Audio();
 player.preload = 'auto';
 let lastClip = null;
 
-player.addEventListener('playing', () => player.dataset.rx && setState('rx'));
+player.addEventListener('playing', () => {
+  // Safari pisa los datos de la pantalla bloqueada al cargar un audio nuevo: se vuelven a poner.
+  setNowPlaying();
+  if (player.dataset.rx) setState('rx');
+});
 for (const type of ['ended', 'pause', 'error']) {
   player.addEventListener(type, () => state === 'rx' && setState('idle'));
 }
@@ -358,14 +364,25 @@ let playStartsAt = 0;
 // `quiet`: si Safari no deja reproducir, no se pide tocar REPETIR (los avisos ya quedan en pantalla).
 // iOS muestra el audio de la web en la Isla Dinámica y en la pantalla bloqueada como si fuera música:
 // así se ve quién habla y en qué canal, con el ícono del walkie.
-function setNowPlaying() {
+// Lo último que dijo Claude en el canal sintonizado, para mostrarlo debajo del canal.
+let nowText = '';
+let nowChannel = null;
+const snippet = (text) => String(text || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+
+function setNowPlaying(text) {
   if (!('mediaSession' in navigator)) return;
-  const active = channels.find((c) => c.id === activeId);
+  if (activeId !== nowChannel) {
+    nowChannel = activeId;
+    nowText = '';
+  }
+  if (text !== undefined) nowText = snippet(text);
+  const index = channels.findIndex((c) => c.id === activeId);
+  const active = channels[index];
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: active ? `Claude · ${active.project}` : 'Claude',
-      artist: 'Walkie-Code',
-      album: active ? `CH${String(channels.indexOf(active) + 1).padStart(2, '0')}` : '',
+      title: active ? `CH${String(index + 1).padStart(2, '0')} · ${active.project}` : 'Claude',
+      artist: nowText || 'Walkie-Code',
+      album: 'Walkie-Code · BunkerApps',
       artwork: [{ src: 'icon-180.png', sizes: '180x180', type: 'image/png' }],
     });
     navigator.mediaSession.setActionHandler('pause', stopPlayback);
@@ -1159,6 +1176,7 @@ function onIncoming(label) {
     // Si habló otro dispositivo, acá solo se muestra el texto.
     if (!mine) return;
     lastClip = audio;
+    setNowPlaying(text);
     if (state === 'waiting' || label === 'PERMISO') setState('idle');
     play(audio);
   };
