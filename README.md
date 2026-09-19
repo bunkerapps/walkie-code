@@ -16,7 +16,7 @@ Everything runs on your own machines. Speech-to-text runs locally with Whisper, 
 - **Channels.** Every iTerm2 session running Claude Code is a channel. Swipe the screen, say "canal superprecio", or use the Dynamic Island track buttons to switch. The tuned tab is painted orange on the Mac with a "📻 CH03" badge.
 - **Answers made for listening.** Dictated prompts ask Claude for short, conversational answers; code blocks and tables are announced instead of read. Messages typed on the Mac are not affected.
 - **Recap.** On open, and on every channel switch, the screen shows the last prompt and the last answer of that session, even if they were typed on the Mac. REPETIR reads it aloud.
-- **Permissions by voice.** When Claude asks for permission you hear it, and "sí" or "no" answers the menu.
+- **Permissions from the phone.** When Claude asks for permission, the walkie shows exactly what it wants to run with APPROVE / ALWAYS / DENY buttons (or answer "sí"/"no" by voice). The answer goes back through the `PermissionRequest` hook as an official decision; unanswered after 2 minutes, the normal dialog appears on the Mac.
 - **Notifications.** Web Push when the phone is locked, alerts when a long task finishes in any channel, and a warning when Claude hits its usage limit (with the reset time), so the walkie never waits forever.
 - **Photos.** Snap a picture of a bug or a design and send it with your next message.
 - **Open Claude anywhere.** Pick a folder from the phone and a new iTerm2 window starts Claude Code there.

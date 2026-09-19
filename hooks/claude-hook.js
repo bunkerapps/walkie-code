@@ -8,9 +8,12 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { loadConfig } from '../lib/config.js';
+import { decisionOutput } from '../lib/permissions.js';
 import { voiceContext, promptContextOutput } from '../lib/voice-style.js';
 
 const TIMEOUT_MS = 1500;
+// Un poco más que lo que el servidor espera la respuesta del teléfono (PERMISSION_WAIT_MS en server.js).
+const PERMISSION_WAIT_MS = 125 * 1000;
 // UserPromptSubmit frena el prompt hasta que el hook termina: pasado este plazo se sale igual.
 const PROMPT_DEADLINE_MS = 1500;
 
@@ -89,6 +92,9 @@ async function main() {
     body.kind = 'permission';
     body.tool = input.tool_name || '';
     body.text = `Permiso para usar ${body.tool || 'una herramienta'}`;
+    // Qué quiere hacer exactamente y qué reglas sugiere Claude Code, para decidir desde el teléfono.
+    body.input = input.tool_input || null;
+    body.suggestions = input.permission_suggestions || [];
   } else if (body.event === 'Notification') {
     body.text = input.message || '';
     const type = input.notification_type || '';
@@ -99,7 +105,16 @@ async function main() {
 
   // En UserPromptSubmit el servidor anota que empezó un turno (para los avisos de tareas largas)
   // y contesta si el prompt lo dictó el teléfono (para pedir una respuesta apta para voz).
-  const res = await post(cfg, body, isPrompt ? PROMPT_DEADLINE_MS - 300 : TIMEOUT_MS);
+  // En PermissionRequest el servidor puede esperar la respuesta del teléfono (hasta ~2 minutos).
+  const isPermission = body.event === 'PermissionRequest';
+  const res = await post(cfg, body, isPrompt ? PROMPT_DEADLINE_MS - 300 : isPermission ? PERMISSION_WAIT_MS : TIMEOUT_MS);
+
+  if (isPermission && res.ok) {
+    const output = decisionOutput((await res.json()).decision, body.suggestions);
+    // Sin decisión (nadie contestó) no se imprime nada y Claude Code muestra su diálogo de siempre.
+    if (output) await new Promise((r) => process.stdout.write(output, r));
+    return;
+  }
 
   if (isPrompt && cfg.voiceStyle !== false && res.ok && (await res.json()).dictated) {
     // En macOS la escritura a un pipe es asíncrona: hay que esperarla antes del process.exit.

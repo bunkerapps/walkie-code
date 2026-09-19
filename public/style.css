@@ -623,6 +623,26 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .fx[hidden] { display: none; }
 .fx-level { font-size: 18px; letter-spacing: 0.02em; min-width: 5.5em; text-align: right; }
 
+/* Permiso pedido por Claude: qué quiere hacer y la respuesta, sin ir a la Mac */
+.perm-summary { font-size: 24px; line-height: 1.1; }
+.perm-detail {
+  max-height: 34vh;
+  overflow: auto;
+  touch-action: pan-y;
+  margin: 0;
+  padding: 8px 10px;
+  font: 18px/1.15 var(--lcd-font);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--lcd);
+  background: var(--lcd-ink);
+  border-radius: 4px;
+}
+.perm-detail:empty { display: none; }
+.perm-actions { display: flex; flex-direction: column; gap: 8px; }
+.perm-actions .picker-btn { width: 100%; height: 46px; font-size: 22px; letter-spacing: 0.1em; }
+.perm-actions .picker-btn[hidden] { display: none; }
+
 @media (max-height: 700px) {
   .radio { gap: 10px; padding-top: 14px; }
   .lcd { min-height: 140px; }

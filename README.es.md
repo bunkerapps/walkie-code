@@ -68,7 +68,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 - Lo que dictás le llega a Claude con una instrucción extra para que **responda para escuchar**: corto, conversado, sin listas largas, tablas ni bloques de código (si hacen falta, los deja en la terminal y los menciona). Lo que tipeás en la Mac no cambia. Se apaga con `"voiceStyle": false`, y el texto de la instrucción está en `lib/voice-style.js`.
 - La respuesta suena **solo en el dispositivo que habló**. Si la web está abierta en otro lado, ahí solo se ve el texto.
 - **REPETIR** lee en voz alta el resumen del canal (lo último que se pidió y lo que respondió Claude), **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
-- Si Claude pide un **permiso**, se escucha el aviso: "sí" o "dale" lo aprueban y "no" lo cancela.
+- Si Claude pide un **permiso** en el canal al que le hablaste, el walkie muestra qué quiere hacer (el comando o el archivo) con **APROBAR**, **SIEMPRE** (no vuelve a preguntar por eso en el proyecto) y **RECHAZAR**; también se contesta diciendo "sí" o "no". La respuesta vuelve por el hook como decisión oficial, sin tocar teclas en la Mac. Si nadie contesta en 2 minutos, el diálogo aparece en la Mac como siempre.
 
 ### Canales
 

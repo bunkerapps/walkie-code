@@ -9,7 +9,7 @@
 //                                          y contesta si lo dictó el teléfono (estilo para voz)
 
 import http from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -19,6 +19,7 @@ import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/speech.js';
 import { recapOf, newestTranscript, readTail, isTranscriptPath } from './lib/transcript.js';
 import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
+import { describePermission, permissionSpeech, canAlways } from './lib/permissions.js';
 import { writeAndSubmit, pressKey, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
@@ -372,8 +373,10 @@ async function deliver(res, { found, text, image, clientId }) {
   // y tiene que encontrar el texto dictado (con la ruta de la foto, tal cual lo recibe Claude).
   const sent = answer ? null : { text: prompt, at: Date.now() };
   pending.set(active.tty, { project: active.project, clientId, permission: false, sent });
+  const ask = answer ? askForTty(active.tty) : null;
   try {
-    if (answer) await pressKey(active.id, answer === 'yes' ? 'enter' : 'escape');
+    if (ask) ask.resolve(answer === 'yes' ? 'allow' : 'deny');
+    else if (answer) await pressKey(active.id, answer === 'yes' ? 'enter' : 'escape');
     else await writeAndSubmit(active.id, prompt);
   } catch (err) {
     if (waiting) pending.set(active.tty, waiting);
@@ -472,11 +475,32 @@ async function handleHook(req, res) {
   } else if (body.kind === 'permission') {
     waiting.permission = true;
     pending.save();
-    const what = body.tool ? `usar ${body.tool}` : 'seguir';
-    const speech = `${from}Claude necesita permiso para ${what}. Decí sí para aprobar o no para cancelar.`;
-    broadcast('notify', { text: body.text, audio: await speak(speech), project: waiting.project, to: waiting.clientId });
+    const { detail, summary } = describePermission(body.tool, body.input);
+    const speech = body.input
+      ? permissionSpeech({ from, tool: body.tool, summary })
+      : `${from}Claude necesita permiso para ${body.tool ? `usar ${body.tool}` : 'seguir'}. Decí sí para aprobar o no para cancelar.`;
+    // Con un teléfono conectado, el hook espera la respuesta (botones o voz) y se la da a Claude Code
+    // como decisión oficial. Sin teléfono, Claude Code muestra su diálogo de siempre en la Mac.
+    const ask = body.event === 'PermissionRequest' && clients.size > 0
+      ? { id: randomUUID(), tool: body.tool, summary, detail, always: canAlways(body.suggestions) }
+      : null;
+    broadcast('notify', {
+      text: detail ? `${summary}: ${detail}` : body.text,
+      audio: await speak(speech),
+      project: waiting.project,
+      to: waiting.clientId,
+      permission: ask,
+    });
     notifyPush(waiting.clientId, pushMessage({ kind: 'permission', tool: body.tool, project: waiting.project }));
-    log(`< ${waiting.project}: pide permiso (${body.tool || '?'})`);
+    log(`< ${waiting.project}: pide permiso (${body.tool || '?'}${detail ? `: ${detail.slice(0, 60)}` : ''})`);
+    if (!ask) return json(res, 200, { ok: true });
+
+    const decision = await waitForDecision(ask.id, body.tty, req);
+    waiting.permission = false;
+    pending.save();
+    broadcast('permission-done', { id: ask.id, decision, project: waiting.project, to: waiting.clientId });
+    log(`< ${waiting.project}: permiso ${decision || 'sin respuesta (queda en la Mac)'}`);
+    return json(res, 200, { decision });
   }
   return json(res, 200, { ok: true });
 }
@@ -514,6 +538,35 @@ async function sendNotice(body, startedAt) {
 // la cuenta, una vez cada 10 minutos); los otros errores, solo al que le habló a ese canal.
 const LIMIT_NOTICE_EVERY_MS = 10 * 60 * 1000;
 let lastLimitNotice = 0;
+
+// Permisos esperando la respuesta del teléfono: id -> { tty, resolve }.
+const PERMISSION_WAIT_MS = 120 * 1000;
+const asks = new Map();
+
+function waitForDecision(id, tty, req) {
+  return new Promise((resolve) => {
+    const done = (decision) => {
+      clearTimeout(timer);
+      if (asks.delete(id)) resolve(decision);
+    };
+    const timer = setTimeout(() => done(null), PERMISSION_WAIT_MS);
+    asks.set(id, { tty, resolve: done });
+    // Si Claude Code cortó el hook (por ejemplo, lo contestaron en la Mac), ya no hay nada que esperar.
+    req.on('close', () => done(null));
+  });
+}
+
+const askForTty = (tty) => [...asks.values()].find((a) => a.tty === tty);
+
+// Respuesta desde los botones del teléfono: allow, always o deny.
+async function handlePermission(req, res) {
+  const { id, decision } = await readJson(req);
+  if (!['allow', 'always', 'deny'].includes(decision)) return json(res, 400, { error: 'Respuesta inválida.' });
+  const ask = asks.get(id);
+  if (!ask) return json(res, 410, { error: 'Ese permiso ya no está esperando.' });
+  ask.resolve(decision);
+  return json(res, 200, { ok: true });
+}
 
 async function handleFailure(body) {
   const waiting = pending.get(body.tty);
@@ -790,6 +843,7 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/channel') return await handleSelect(req, res);
     if (route === 'POST /api/close') return await handleClose(req, res);
     if (route === 'POST /api/talk') return await handleTalk(req, res);
+    if (route === 'POST /api/permission') return await handlePermission(req, res);
     if (route === 'POST /api/image') return await handleImage(req, res);
     if (route === 'POST /api/send') return await handleSend(req, res);
     if (route === 'GET /api/folders') return await handleFolders(res, url);

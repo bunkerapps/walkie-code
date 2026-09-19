@@ -948,6 +948,61 @@ $('rename-close').addEventListener('click', () => {
   renamePanel.hidden = true;
 });
 
+// ---------- Permisos ----------
+//
+// Claude pide permiso en el canal al que le hablaste: se ve qué quiere hacer (el comando, el archivo) y se
+// contesta acá o por voz. La respuesta vuelve por el hook como decisión oficial, sin tocar teclas en la Mac.
+
+let permId = null;
+
+function showPermission({ permission, project }) {
+  permId = permission.id;
+  $('perm-title').textContent = `PERMISO · ${(project || '').toUpperCase()}`;
+  $('perm-summary').textContent = permission.summary;
+  $('perm-detail').textContent = permission.detail || '';
+  $('perm-always').hidden = !permission.always;
+  $('perm').hidden = false;
+}
+
+function hidePermission(id) {
+  if (id && id !== permId) return;
+  permId = null;
+  $('perm').hidden = true;
+}
+
+const PERM_LABELS = { allow: 'APROBADO', always: 'APROBADO SIEMPRE', deny: 'RECHAZADO' };
+
+async function answerPermission(decision) {
+  if (!permId) return;
+  unlockAudio();
+  sfx.click();
+  const id = permId;
+  hidePermission();
+  try {
+    const res = await api('/api/permission', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, decision }),
+    });
+    if (!res.ok) return fail(((await res.json()).error || 'NO SE PUDO RESPONDER').toUpperCase());
+    setState('waiting');
+  } catch {
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+}
+
+$('perm-allow').addEventListener('click', () => answerPermission('allow'));
+$('perm-always').addEventListener('click', () => answerPermission('always'));
+$('perm-deny').addEventListener('click', () => answerPermission('deny'));
+
+function onPermissionDone(e) {
+  rememberEvent(e);
+  const { id, decision, to } = JSON.parse(e.data);
+  if (to && to !== clientId) return;
+  hidePermission(id);
+  log('PERMISO', decision ? PERM_LABELS[decision] : 'SIN RESPUESTA: QUEDÓ PARA CONTESTAR EN LA MAC', { muted: true });
+}
+
 // ---------- Lector de mensajes completos ----------
 
 function openReader(who, text) {
@@ -1296,8 +1351,11 @@ let replayTimer = 0;
 function onIncoming(label) {
   return (e) => {
     rememberEvent(e);
-    const { text, audio, project, to, replay, at } = JSON.parse(e.data);
+    const data = JSON.parse(e.data);
+    const { text, audio, project, to, replay, at } = data;
     const mine = !to || to === clientId;
+    // También al volver desde la notificación (replay), mientras el hook lo siga esperando (~2 minutos).
+    if (mine && data.permission && (!replay || Date.now() - (at || 0) < 125 * 1000)) showPermission(data);
     log(project ? `${label} ${project.toUpperCase()}` : label, text, { muted: !mine });
     // Si habló otro dispositivo, acá solo se muestra el texto.
     if (!mine) return;
@@ -1375,6 +1433,7 @@ function connect() {
   events.addEventListener('reply', onIncoming('CLAUDE'));
   events.addEventListener('notify', onIncoming('PERMISO'));
   events.addEventListener('notice', onNotice);
+  events.addEventListener('permission-done', onPermissionDone);
 }
 
 // ---------- Avisos push (teléfono bloqueado) ----------
