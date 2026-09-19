@@ -19,7 +19,7 @@ import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/speech.js';
 import { recapOf, newestTranscript, readTail, isTranscriptPath } from './lib/transcript.js';
 import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
-import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
+import { writeAndSubmit, pressKey, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
 import { parseChannelCommand, findChannel, missSpeech } from './lib/commands.js';
@@ -552,6 +552,25 @@ async function handleSelect(req, res) {
   return json(res, 200, await tuneTo(found, target));
 }
 
+// Cierra el canal (sale de Claude Code y cierra la pestaña de iTerm2) y sintoniza el que quede.
+async function handleClose(req, res) {
+  const { id } = await readJson(req);
+  const found = await resolveChannels();
+  const target = found.channels.find((c) => c.id === id);
+  if (!target) return json(res, 404, { error: 'Ese canal ya no existe.', ...channelsPayload(found) });
+  await unhighlight(target.tty).catch(() => {});
+  if (highlighted?.tty === target.tty) highlighted = null;
+  await closeChannel(target.id);
+  pending.delete(target.tty);
+  turns.delete(target.tty);
+  asking.delete(target.tty);
+  if (selectedId === target.id) select(null);
+  log(`x canal cerrado: ${target.project}`);
+  const after = await resolveChannels();
+  const payload = channelsPayload(after);
+  return json(res, 200, { ...payload, audio: await speak(`Cerré ${target.project}.`) });
+}
+
 async function handleFolders(res, url) {
   const { channels } = await channelsNow();
   const activeDirs = new Set(channels.map((c) => c.cwd));
@@ -752,6 +771,7 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/recap') return await handleRecap(res, url);
     if (route === 'GET /api/channels') return json(res, 200, channelsPayload(await resolveChannels()));
     if (route === 'POST /api/channel') return await handleSelect(req, res);
+    if (route === 'POST /api/close') return await handleClose(req, res);
     if (route === 'POST /api/talk') return await handleTalk(req, res);
     if (route === 'POST /api/image') return await handleImage(req, res);
     if (route === 'POST /api/send') return await handleSend(req, res);

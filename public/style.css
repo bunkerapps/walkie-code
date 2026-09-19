@@ -554,6 +554,23 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .picker-open:active { transform: translateY(3px); box-shadow: 0 1px 0 #7a2805; }
 .picker-open:disabled { filter: saturate(0.3); }
 
+/* Cerrar el canal sintonizado: discreto, y en rojo cuando pide confirmación */
+.picker-close-channel {
+  height: 40px;
+  font-family: var(--label-font);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  color: var(--lcd-ink);
+  border: 2px solid var(--lcd-ink);
+  border-radius: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.picker-close-channel[hidden] { display: none; }
+.picker-close-channel.confirm { color: #fff; background: #b3261e; border-color: #b3261e; }
+
 /* Selector de voz */
 .rate {
   display: flex;

@@ -81,6 +81,8 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 - **Nombre propio:** manteniendo apretado el nombre del canal se le pone un nombre a esa carpeta. Se usa en el walkie, en la voz, en la marca de la Mac y en el explorador.
 - **＋** abre un explorador de carpetas dentro de `projectsRoot`. **ABRIR CLAUDE ACÁ** abre una ventana nueva de iTerm2 con Claude Code en esa carpeta y sintoniza el canal. Si Claude pregunta si confiás en la carpeta, se contesta "sí".
 
+- Para **cerrar un canal**, tocá **＋** y después **✕ CERRAR** (dos toques, para no cerrarlo sin querer): sale de Claude Code con `/exit` y cierra la pestaña de iTerm2.
+
 ### Avisos
 
 - **AVISOS** (arriba) activa las notificaciones push. Con el teléfono bloqueado llegan las respuestas ("CLAUDE · proyecto"), los pedidos de permiso y los avisos de otros canales. Requiere abrir la app desde el ícono de la pantalla de inicio. Si alguna vez lo rechazaste, se habilita en Ajustes › Notificaciones › Walkie-Code.

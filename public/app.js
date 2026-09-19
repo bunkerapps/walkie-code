@@ -810,8 +810,56 @@ function renderFolders() {
 function openPicker() {
   unlockAudio();
   picker.hidden = false;
+  renderCloseChannel();
   loadFolder(folderView?.rel || '');
 }
+
+// ---------- Cerrar el canal sintonizado ----------
+// Dos toques: el primero pide confirmación (3 s), el segundo sale de Claude Code y cierra la pestaña.
+
+const closeButton = $('close-channel');
+let closeArmed = null;
+
+function renderCloseChannel() {
+  clearTimeout(closeArmed);
+  closeArmed = null;
+  closeButton.classList.remove('confirm');
+  closeButton.disabled = false;
+  const index = channels.findIndex((c) => c.id === activeId);
+  closeButton.hidden = index === -1;
+  if (index !== -1) closeButton.textContent = `✕ CERRAR CH${String(index + 1).padStart(2, '0')} · ${channels[index].project.toUpperCase()}`;
+}
+
+closeButton.addEventListener('click', async () => {
+  unlockAudio();
+  sfx.click();
+  if (!closeArmed) {
+    closeButton.classList.add('confirm');
+    closeButton.textContent = '¿SEGURO? TOCÁ DE NUEVO PARA CERRAR';
+    closeArmed = setTimeout(renderCloseChannel, 3000);
+    return;
+  }
+  clearTimeout(closeArmed);
+  closeButton.disabled = true;
+  closeButton.textContent = '… CERRANDO';
+  try {
+    const res = await api('/api/close', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: activeId }),
+    });
+    const body = await res.json();
+    applyChannels(body);
+    if (!res.ok) fail((body.error || 'NO SE PUDO CERRAR').toUpperCase());
+    else {
+      closePicker();
+      if (body.audio) play(body.audio, { squelch: false, rx: false });
+    }
+  } catch {
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+  renderCloseChannel();
+});
 
 function closePicker() {
   picker.hidden = true;
