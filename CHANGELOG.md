@@ -2,6 +2,19 @@
 
 All notable changes to Walkie-Code are documented here. The project follows [Semantic Versioning](https://semver.org).
 
+## [1.1.0] — 2026-09-19
+
+### Changed
+
+- Buttons reorganized for one-handed use:
+  - bottom, in the thumb zone: REPETIR, SILENCIO and a camera icon on the right, where messaging apps put it;
+  - top, away from the thumb: ESC (red, so Claude isn't interrupted by accident), open project (＋) and settings (gear).
+- Icons are SVG now, and the top keys have a 44 px touch area.
+
+### Fixed
+
+- Each channel keeps its own on-screen history. Before, switching channels mixed the new channel's messages under the previous one's. Coming back to a channel now restores its history without repeating the title or the recap.
+
 ## [1.0.0] — 2026-09-19
 
 First official release: a push-to-talk walkie-talkie for Claude Code, from an iPhone to iTerm2 on a Mac.
@@ -51,4 +64,5 @@ First official release: a push-to-talk walkie-talkie for Claude Code, from an iP
 
   See [SECURITY.md](SECURITY.md).
 
+[1.1.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.1.0
 [1.0.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.0.0
