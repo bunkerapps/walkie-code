@@ -38,14 +38,18 @@ La primera vez macOS pide permiso de Automatización para que `node` controle iT
 - La respuesta suena **solo en el dispositivo que habló**; si la web está abierta en otro lado, ahí solo se ve el texto. Si le hablaste a un canal y cambiaste a otro, la respuesta se anuncia con "Desde <proyecto>".
 - Si Claude pide un permiso, se escucha el aviso. Respondiendo "sí" o "dale" se aprueba, y con "no" se cancela.
 - Tocando el **parlante** (VOZ) se elige la voz de las respuestas entre las voces en español instaladas en la Mac, y su velocidad. Se guarda en la configuración.
+- **FOTO** (arriba, al lado de la perilla) saca una foto o elige una de la galería o una captura. El teléfono la achica a 1600 px en JPEG, la sube a la Mac y queda cargada: la pantalla muestra la miniatura con "FOTO LISTA", y la tecla FOTO se prende en naranja. La próxima transmisión del PTT la manda junto con lo que dictes. **ENVIAR SOLA** la manda sin hablar, con el texto "Mirá esta imagen". Con **✕** se quita.
+  En la terminal se escribe lo dictado y, al final, la ruta absoluta de la foto (`~/.supervoz/uploads/supervoz-<id>.jpg`). Claude Code abre la imagen desde esa ruta. Como la carpeta queda fuera del proyecto, es posible que Claude pida permiso para leerla: se contesta "sí" por el walkie. Para que no pregunte, se puede permitir `Read(~/.supervoz/uploads/**)` en la configuración de Claude Code. Las fotos de más de 7 días se borran solas.
 - La **perilla** de arriba recarga la app.
 - **REPETIR** vuelve a leer la última respuesta, **SILENCIO** corta la lectura y **ESC** interrumpe a Claude.
 - La pantalla queda encendida mientras la app está abierta. Si el teléfono se bloquea, al volver se recupera lo que llegó mientras tanto.
 
-Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`) y velocidad (`rate`).
+Configuración en `~/.supervoz/config.json`: puerto, idioma, modelo y vocabulario de ayuda para Whisper, voz de las respuestas (`voice`, ver `say -v '?'`), velocidad (`rate`) y carpeta de las fotos (`uploadsDir`).
 
 ## Desarrollo
 
-`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso) y del explorador de carpetas (que no se pueda salir de la raíz).
+`npm test` corre los tests del limpiador de texto (markdown a voz, filtros de Whisper, respuestas de permiso), del explorador de carpetas (que no se pueda salir de la raíz) y de las fotos (validación por contenido, limpieza de viejas, armado del mensaje).
+
+API de fotos: `POST /api/image` recibe la imagen cruda en el cuerpo (JPEG, PNG, GIF o WebP, hasta 8 MB; el tipo se valida por los bytes del archivo y no por el Content-Type) y devuelve `{ id }`. `POST /api/talk` con el header `X-Supervoz-Image: <id>` la manda junto con el audio. `POST /api/send` con `{ "image": "<id>" }` la manda sola. Si el id ya no existe, responde 410.
 
 Sonidos del equipo en `public/sounds`: `ptt.m4a` al apretar, `release.m4a` al soltar, `rx.m4a` cuando llega una respuesta.

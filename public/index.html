@@ -28,6 +28,8 @@
         <span class="brand-model">CLV-1 · CLAUDE LINK</span>
       </div>
       <div class="faceplate-right">
+        <button type="button" class="side-key" id="photo-key" aria-label="Adjuntar una foto para Claude">FOTO</button>
+        <input type="file" id="photo-input" accept="image/*" hidden>
         <button type="button" class="knob" id="reload" aria-label="Recargar">↻</button>
         <span class="led" aria-hidden="true"></span>
       </div>
@@ -44,6 +46,12 @@
         <span id="state-label">LISTO</span>
         <span class="lcd-spinner" id="spinner" aria-hidden="true"></span>
         <span class="lcd-meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      </div>
+      <div class="lcd-attach" id="attach" hidden>
+        <img class="lcd-thumb" id="attach-thumb" alt="Foto cargada">
+        <span class="lcd-attach-label" id="attach-label">FOTO LISTA</span>
+        <button type="button" class="lcd-attach-btn" id="attach-send">ENVIAR SOLA</button>
+        <button type="button" class="lcd-attach-btn" id="attach-remove" aria-label="Quitar la foto">✕</button>
       </div>
       <div class="lcd-log" id="log"></div>
     </section>
