@@ -15,7 +15,8 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
-import { toSpeech, cleanTranscript, permissionAnswer } from './lib/speech.js';
+import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/speech.js';
+import { recapOf, newestTranscript } from './lib/transcript.js';
 import { writeAndSubmit, pressKey, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
@@ -51,6 +52,9 @@ let selectedId = null;
 // Terminales a las que les hablamos y todavía no respondieron.
 // Solo se leen en voz alta las respuestas de estas, y solo en el teléfono que habló.
 // `sent` es lo último que se dictó ahí, para reconocerlo cuando Claude Code lo reciba.
+// Transcripción de Claude Code de cada terminal, según los hooks (para el resumen del canal).
+const transcripts = new Map(); // tty -> ruta del .jsonl
+
 const pending = new Map(); // tty -> { project, clientId, permission, sent: { text, at } | null }
 
 // Cuándo empezó el turno en curso de cada terminal (hook UserPromptSubmit), para medir cuánto duró.
@@ -368,6 +372,7 @@ async function tuneByVoice(found, text) {
 async function handleHook(req, res) {
   const body = await readJson(req);
   if (!body.tty) return json(res, 200, { ignored: true });
+  if (body.transcript) transcripts.set(body.tty, body.transcript);
   // Claude Code recibió un prompt: se anota cuándo empezó el turno y se contesta rápido,
   // sin consultar a iTerm2, si lo dictó el teléfono (el hook lo está esperando).
   if (body.event === 'UserPromptSubmit') {
@@ -571,6 +576,27 @@ async function handleName(req, res) {
   return json(res, 200, { ...payload, audio: await speak(`Canal ${number}. ${renamed.project}.`) });
 }
 
+// Lo último que pasó en un canal (aunque se haya escrito desde la Mac). Con ?speak=1, también en audio.
+async function handleRecap(res, url) {
+  const found = await resolveChannels();
+  const channel = found.channels.find((c) => c.id === url.searchParams.get('id')) || found.active;
+  if (!channel) return json(res, 404, { error: 'No hay ningún canal.' });
+
+  const file = transcripts.get(channel.tty) || (channel.cwd && (await newestTranscript(channel.cwd)));
+  const recap = file ? await recapOf(file).catch(() => null) : null;
+  if (!recap?.prompt && !recap?.reply) return json(res, 200, { id: channel.id, project: channel.project, empty: true });
+
+  const payload = {
+    id: channel.id,
+    project: channel.project,
+    prompt: recap.prompt?.text || null,
+    reply: recap.working ? null : recap.reply?.text || null,
+    working: recap.working,
+  };
+  if (url.searchParams.get('speak')) payload.audio = await speak(recapSpeech(channel.project, recap));
+  return json(res, 200, payload);
+}
+
 async function serveStatic(res, pathname) {
   const file = path.normalize(path.join(PUBLIC, pathname === '/' ? 'index.html' : pathname));
   if (!file.startsWith(PUBLIC)) return json(res, 404, { error: 'no encontrado' });
@@ -596,6 +622,7 @@ const server = http.createServer(async (req, res) => {
     if (route !== 'POST /api/presence') presence.touch(req.headers['x-supervoz-client']);
 
     if (route === 'GET /api/events') return openEvents(req, res, url);
+    if (route === 'GET /api/recap') return await handleRecap(res, url);
     if (route === 'GET /api/channels') return json(res, 200, channelsPayload(await resolveChannels()));
     if (route === 'POST /api/channel') return await handleSelect(req, res);
     if (route === 'POST /api/talk') return await handleTalk(req, res);

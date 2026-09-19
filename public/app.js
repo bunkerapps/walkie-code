@@ -140,7 +140,23 @@ function applyChannels(payload) {
   if (payload.active && payload.active.id !== announcedId) {
     announcedId = payload.active.id;
     if (payload.active.title) log(`CH${String(payload.active.number).padStart(2, '0')}`, payload.active.title, { muted: true });
+    showRecap(payload.active.id);
   }
+}
+
+// Lo último que pasó en el canal, aunque se haya escrito desde la Mac: el último pedido y la última
+// respuesta. Se muestra al abrir la app y al cambiar de canal; REPETIR lo lee en voz alta.
+async function fetchRecap(id, speak = false) {
+  const res = await api(`/api/recap?id=${encodeURIComponent(id || '')}${speak ? '&speak=1' : ''}`);
+  return res.ok ? res.json() : null;
+}
+
+async function showRecap(id) {
+  const recap = await fetchRecap(id).catch(() => null);
+  if (!recap || recap.empty || id !== activeId) return;
+  if (recap.prompt) log('ÚLTIMO · VOS', recap.prompt, { muted: true });
+  if (recap.working) log('CLAUDE', 'TODAVÍA ESTÁ TRABAJANDO…', { muted: true });
+  else if (recap.reply) log('CLAUDE', recap.reply, { muted: true });
 }
 
 async function refreshChannels() {
@@ -326,6 +342,10 @@ function setNowPlaying() {
     navigator.mediaSession.setActionHandler('pause', stopPlayback);
     navigator.mediaSession.setActionHandler('stop', stopPlayback);
     navigator.mediaSession.setActionHandler('play', () => player.play().catch(() => {}));
+    navigator.mediaSession.setActionHandler('seekbackward', null);
+    navigator.mediaSession.setActionHandler('seekforward', null);
+    navigator.mediaSession.setActionHandler('previoustrack', () => switchChannel(-1));
+    navigator.mediaSession.setActionHandler('nexttrack', () => switchChannel(1));
   } catch {}
 }
 
@@ -655,9 +675,12 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => e.code === 'Space' && endTx());
 
-$('replay').addEventListener('click', () => {
+$('replay').addEventListener('click', async () => {
   unlockAudio();
-  lastClip ? play(lastClip) : log('', 'TODAVÍA NO HAY RESPUESTAS', { muted: true });
+  sfx.click();
+  const recap = await fetchRecap(activeId, true).catch(() => null);
+  if (recap?.audio) return play(recap.audio, { squelch: false });
+  lastClip ? play(lastClip) : log('', 'TODAVÍA NO HAY NADA EN ESTE CANAL', { muted: true });
 });
 $('mute').addEventListener('click', stopPlayback);
 $('reload').addEventListener('click', () => location.reload());

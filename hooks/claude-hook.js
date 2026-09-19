@@ -70,7 +70,8 @@ async function main() {
   const cfg = loadConfig({ create: false });
   if (!cfg.token) return;
 
-  const body = { event: input.hook_event_name, tty: findTty(), cwd: input.cwd };
+  // La transcripción le sirve al servidor para el resumen de cada canal (lo último que pasó).
+  const body = { event: input.hook_event_name, tty: findTty(), cwd: input.cwd, transcript: input.transcript_path };
 
   if (isPrompt) {
     body.prompt = input.prompt || '';
