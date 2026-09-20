@@ -21,9 +21,11 @@ import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/speech.js';
 import { recapOf, newestTranscript, readTail, isTranscriptPath } from './lib/transcript.js';
 import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
+import { reconectar, ordenar } from './lib/channels.js';
 import { describePermission, permissionSpeech, canAlways } from './lib/permissions.js';
 import { Preview, scanDevices, castSite, stopCast, newestPage } from './lib/cast.js';
-import { writeAndSubmit, pressKey, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
+import { writeAndSubmit, pressKey, pressArrow, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
+import { pideConfianza, elegirOpcion } from './lib/trust.js';
 import { listFolders, safeDir } from './lib/folders.js';
 import { slugify, starterPage, inLab, isLabProject } from './lib/projects.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
@@ -67,6 +69,23 @@ let selectedId = (() => {
   }
 })();
 
+// El número de cada canal: el orden en que fueron apareciendo. También se guarda, así un reinicio
+// del servidor no les cambia el número a los canales que ya estaban abiertos.
+const ORDER_FILE = path.join(HOME_DIR, 'orden.json');
+const ordenCanales = (() => {
+  try {
+    return new Map(Object.entries(JSON.parse(readFileSync(ORDER_FILE, 'utf8'))));
+  } catch {
+    return new Map();
+  }
+})();
+
+function guardarOrden() {
+  try {
+    writeFileSync(ORDER_FILE, JSON.stringify(Object.fromEntries(ordenCanales)));
+  } catch {}
+}
+
 function select(id) {
   if (id === selectedId) return;
   selectedId = id;
@@ -91,14 +110,25 @@ const asking = new Set();
 
 const channelsNow = () => listChannels(cfg.names || {}, cfg.channelNames || {});
 
+// El canal elegido, la última vez que se lo vio: sirve para esperarlo mientras Claude Code se reinicia.
+let memoriaCanal = null;
+
 async function resolveChannels() {
   const list = await channelsNow();
-  const { channels } = list;
-  // Si la sesión elegida se cerró, se vuelve a seguir la terminal activa en la Mac.
-  if (list.ok && selectedId && !channels.some((c) => c.id === selectedId)) select(null);
+  let channels = list.channels;
+  if (list.ok) {
+    // Si la sesión elegida se cerró, se vuelve a seguir la terminal activa en la Mac.
+    const r = reconectar({ channels, sessions: list.sessions, selectedId, memoria: memoriaCanal });
+    channels = r.channels;
+    memoriaCanal = r.memoria;
+    if (r.soltar) select(null);
+  }
+  const antes = [...ordenCanales.keys()].join(',');
+  channels = ordenar(channels, ordenCanales);
+  if ([...ordenCanales.keys()].join(',') !== antes) guardarOrden();
   const active = channels.find((c) => c.id === selectedId) || channels.find((c) => c.current) || channels[0] || null;
   await syncHighlight(active, channels.indexOf(active));
-  return { ...list, active };
+  return { ...list, channels, active };
 }
 
 const chLabel = (index) => `CH${String(index + 1).padStart(2, '0')}`;
@@ -123,7 +153,7 @@ async function syncHighlight(active, index) {
 const cleanTitle = (title) => title.replace(/^\W+\s*/u, '').replace(/\s*\(claude\)$/, '').trim();
 
 const publicChannel = (c, i) =>
-  c && { id: c.id, project: c.project, folder: c.folder, named: c.project !== c.folder, title: cleanTitle(c.title), number: i + 1 };
+  c && { id: c.id, project: c.project, folder: c.folder, named: c.project !== c.folder, title: cleanTitle(c.title), number: i + 1, starting: Boolean(c.starting) };
 
 function channelsPayload({ channels, active, error }) {
   const index = channels.indexOf(active);
@@ -426,8 +456,20 @@ async function handleImage(req, res) {
 
 // Escribe en el canal activo. Con foto, la ruta va al final y nunca se toma como respuesta a un permiso.
 async function deliver(res, { found, text, images = [], clientId }) {
-  const { active } = found;
+  let { active } = found;
   if (!active) return json(res, 409, { error: channelsPayload(found).error, text });
+
+  // El canal se está reiniciando (recién aceptó la confianza de la carpeta): se espera a que Claude
+  // Code vuelva, así lo dictado no se pierde en el prompt de la shell.
+  for (let i = 0; active.starting && i < 20; i++) {
+    await sleep(500);
+    found = await resolveChannels();
+    active = found.active;
+    if (!active) return json(res, 409, { error: channelsPayload(found).error, text });
+  }
+  if (active.starting) {
+    return json(res, 409, { error: 'Claude Code está arrancando en ese canal: probá de nuevo en un momento.', text });
+  }
 
   // "Canal superprecio", "canal tres", "pasame a bunkerapps": se cambia de canal en vez de escribir.
   const tuned = images.length ? null : await tuneByVoice(found, text);
@@ -443,10 +485,15 @@ async function deliver(res, { found, text, images = [], clientId }) {
   // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
   // y tiene que encontrar el texto dictado (con la ruta de la foto, tal cual lo recibe Claude).
   const sent = answer ? null : { text: prompt, at: Date.now() };
-  pending.set(active.tty, { project: active.project, clientId, permission: false, sent });
+  // La pregunta de confianza no abre ningún turno de Claude: contestarla no deja nada esperando.
+  // (Si no, la pantalla quedaba en "Claude piensa" para siempre, porque nunca llegaba el hook Stop.)
+  const esConfianza = Boolean(answer && waiting?.trust);
+  if (esConfianza) pending.delete(active.tty);
+  else pending.set(active.tty, { project: active.project, clientId, permission: false, sent });
   const ask = answer ? askForTty(active.tty) : null;
   try {
     if (ask) ask.resolve(answer === 'yes' ? 'allow' : 'deny');
+    else if (esConfianza) await responderConfianza(active.id, answer === 'yes' ? 'allow' : 'deny');
     else if (answer) await pressKey(active.id, answer === 'yes' ? 'enter' : 'escape');
     else await writeAndSubmit(active.id, prompt);
   } catch (err) {
@@ -455,8 +502,11 @@ async function deliver(res, { found, text, images = [], clientId }) {
     throw err;
   }
 
-  log(`> ${active.project}: ${answer ? `[permiso: ${answer}]` : prompt}`);
-  return json(res, 200, { text: text || DEFAULT_IMAGE_TEXT, project: active.project, permission: answer, image: images.length });
+  log(`> ${active.project}: ${answer ? `[permiso${esConfianza ? ' de carpeta' : ''}: ${answer}]` : prompt}`);
+  const trust = esConfianza
+    ? { trust: answer, audio: await speak(answer === 'yes' ? `Listo. Claude está arrancando en ${active.project}.` : 'Dejé la carpeta sin confianza.') }
+    : {};
+  return json(res, 200, { text: text || DEFAULT_IMAGE_TEXT, project: active.project, permission: answer, image: images.length, ...trust });
 }
 
 // El teléfono mandó audio: se transcribe y se escribe en el canal activo.
@@ -634,10 +684,33 @@ function waitForDecision(id, tty, req) {
 
 const askForTty = (tty) => [...asks.values()].find((a) => a.tty === tty);
 
+// La pregunta de confianza de una carpeta no viene de un hook: se contesta tecleando en la terminal.
+const TRUST_PREFIX = 'trust:';
+
+// El menú de confianza arranca en "No, exit": primero se mueve la selección y recién ahí va el Enter.
+async function responderConfianza(sessionId, decision) {
+  const pantalla = await sessionContents(sessionId).catch(() => '');
+  const { dir, veces } = elegirOpcion(pantalla, decision);
+  if (dir) await pressArrow(sessionId, dir, veces);
+  await pressKey(sessionId, 'enter');
+}
+
+async function answerTrust(res, sessionId, decision) {
+  const { channels } = await channelsNow().catch(() => ({ channels: [] }));
+  const target = channels.find((c) => c.id === sessionId);
+  if (!target) return json(res, 410, { error: 'Ese canal ya no está esperando.' });
+  await responderConfianza(sessionId, decision === 'deny' ? 'deny' : 'allow');
+  pending.delete(target.tty);
+  log(`> ${target.project}: [confianza de carpeta: ${decision}]`);
+  const speech = decision === 'deny' ? 'Dejé la carpeta sin confianza.' : `Listo. Claude está arrancando en ${target.project}.`;
+  return json(res, 200, { ok: true, trust: decision, audio: await speak(speech) });
+}
+
 // Respuesta desde los botones del teléfono: allow, always o deny.
 async function handlePermission(req, res) {
   const { id, decision } = await readJson(req);
   if (!['allow', 'always', 'deny'].includes(decision)) return json(res, 400, { error: 'Respuesta inválida.' });
+  if (String(id).startsWith(TRUST_PREFIX)) return answerTrust(res, String(id).slice(TRUST_PREFIX.length), decision);
   const ask = asks.get(id);
   if (!ask) return json(res, 410, { error: 'Ese permiso ya no está esperando.' });
   ask.resolve(decision);
@@ -792,22 +865,37 @@ async function openClaudeIn(req, res, full, intro) {
     found = await channelsNow();
     if (found.channels.some((c) => c.id === session.id)) break;
   }
+  if (!found.channels.some((c) => c.id === session.id)) {
+    return json(res, 504, { error: 'Se abrió la terminal, pero Claude Code no arrancó.' });
+  }
+
+  select(session.id);
+  // Con la sintonía puesta, se rearma la lista ya ordenada: el canal nuevo es el último, no el primero.
+  found = await resolveChannels();
   const target = found.channels.find((c) => c.id === session.id);
   if (!target) return json(res, 504, { error: 'Se abrió la terminal, pero Claude Code no arrancó.' });
-
-  select(target.id);
   const index = found.channels.indexOf(target);
-  await syncHighlight(target, index);
 
-  // En una carpeta nueva, Claude Code primero pregunta si se confía en ella.
+  // En una carpeta nueva, Claude Code primero pregunta si se confía en ella. Se contesta con el mismo
+  // panel que los permisos (botones en pantalla), no solo por voz.
   await sleep(1500);
   const screen = await sessionContents(target.id).catch(() => '');
-  const asksTrust = /trust/i.test(screen);
-  if (asksTrust) pending.set(target.tty, { project: target.project, clientId, permission: true });
+  const asksTrust = pideConfianza(screen);
+  if (asksTrust) pending.set(target.tty, { project: target.project, clientId, permission: true, trust: true });
 
+  const permission = asksTrust
+    ? {
+        id: `${TRUST_PREFIX}${target.id}`,
+        project: target.project,
+        summary: '¿Confiás en los archivos de esta carpeta?',
+        detail: full,
+        always: false,
+        labels: { allow: 'CONFIAR', deny: 'NO ABRIR' },
+      }
+    : null;
   const speech = `${intro || `Canal ${index + 1}. ${target.project}.`} ` +
-    (asksTrust ? 'Claude pregunta si confiás en esta carpeta. Decí sí para aceptar.' : 'Claude está listo.');
-  return json(res, 200, { ...channelsPayload({ ...found, active: target }), trust: asksTrust, audio: await speak(speech) });
+    (asksTrust ? 'Claude pregunta si confiás en esta carpeta: está en pantalla.' : 'Claude está listo.');
+  return json(res, 200, { ...channelsPayload({ ...found, active: target }), trust: asksTrust, permission, audio: await speak(speech) });
 }
 
 // ---------- Voz de las respuestas ----------

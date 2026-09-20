@@ -4,6 +4,21 @@ All notable changes to Walkie-Code are documented here. The project follows [Sem
 
 [Leer en español](CHANGELOG.es.md)
 
+## [1.5.0] — 2026-09-20
+
+### Added
+
+- **Folder trust is answered from the phone.** The first time you open a folder, Claude Code asks whether you trust it. That question now shows up in the same panel as permissions, with the path in view and two buttons: TRUST and DON'T OPEN.
+
+### Fixed
+
+- **Trusting a folder no longer closes the channel.** Claude Code's menu starts on "No, exit", so the Enter the walkie sent picked exactly that: Claude quit and the terminal was left at the shell. The walkie now reads the screen, moves the selection to the right option and only then confirms.
+- **The tuned channel survives Claude Code restarting.** After accepting trust (or on an update) Claude Code restarts, and for a few seconds there is no process in that terminal. The channel was treated as closed and the phone jumped to CH01; now it waits for it while the tab is still open, and anything you dictate meanwhile is typed once Claude is back.
+- **The screen no longer gets stuck on "Claude is thinking".** Answering the trust question starts no turn, so nothing is left waiting.
+- **Channels keep their number.** The order came from iTerm2, which lists windows by which one is in front: opening a new folder put it first and shifted every channel. Each channel now keeps the number it got when it appeared, new ones go last, and the order survives restarts.
+- **Error messages tell the truth.** Anything that went wrong ended up as "no connection to the Mac". The phone now tells apart being offline, not reaching the Mac, and an error the Mac actually returned — naming what it was doing.
+- A transient iTerm2 error (while a window opens or closes) no longer leaves the phone with no channels at all: it retries.
+
 ## [1.4.0] — 2026-09-20
 
 ### Added
@@ -95,6 +110,7 @@ First official release: a push-to-talk walkie-talkie for Claude Code, from an iP
 
   See [SECURITY.md](SECURITY.md).
 
+[1.5.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.5.0
 [1.4.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.4.0
 [1.3.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.3.0
 [1.2.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.2.0

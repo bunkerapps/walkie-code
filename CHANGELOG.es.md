@@ -4,6 +4,21 @@ Acá queda anotado todo lo que va cambiando en Walkie-Code. El proyecto usa [ver
 
 [Read in English](CHANGELOG.md)
 
+## [1.5.0] — 2026-09-20
+
+### Agregado
+
+- **La confianza de una carpeta se contesta desde el teléfono.** Al abrir una carpeta por primera vez, Claude Code pregunta si se confía en ella. Ahora esa pregunta aparece en el mismo panel que los permisos, con la ruta a la vista y dos botones: CONFIAR y NO ABRIR.
+
+### Arreglado
+
+- **Confiar en una carpeta ya no cierra el canal.** El menú de Claude Code viene con "No, exit" seleccionado, así que el Enter que mandaba el walkie elegía justo esa opción: Claude salía y la terminal quedaba en la shell. Ahora el walkie lee la pantalla, mueve la selección a la opción que corresponde y recién ahí confirma.
+- **El canal sintonizado sobrevive al reinicio de Claude Code.** Al aceptar la confianza (o al actualizarse), Claude Code se reinicia y por unos segundos no hay ningún proceso en esa terminal. El canal se daba por cerrado y el teléfono saltaba al CH01; ahora se lo espera mientras la pestaña siga abierta y, si justo dictás algo, se escribe cuando Claude vuelve.
+- **La pantalla ya no se queda en "Claude piensa".** Contestar la pregunta de confianza no abre ningún turno, así que no queda nada esperando.
+- **Los canales conservan su número.** El orden venía de iTerm2, que lista las ventanas por cuál está adelante: abrir una carpeta nueva la ponía primera y corría todos los canales. Ahora cada canal se queda con el número que le tocó al aparecer, los nuevos van al final y el orden se guarda entre reinicios.
+- **Los mensajes de error dicen la verdad.** Cualquier problema terminaba en "sin conexión con la Mac". Ahora se distingue quedarse sin internet, no llegar a la Mac y un error que la Mac contestó, y se nombra qué se estaba haciendo.
+- Un error pasajero de iTerm2 (mientras se abre o se cierra una ventana) ya no deja al teléfono sin ningún canal a la vista: se reintenta.
+
 ## [1.4.0] — 2026-09-20
 
 ### Agregado
@@ -95,6 +110,7 @@ Primera versión oficial: un walkie-talkie para hablarle a Claude Code desde el 
 
   Ver [SECURITY.md](SECURITY.md).
 
+[1.5.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.5.0
 [1.4.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.4.0
 [1.3.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.3.0
 [1.2.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.2.0

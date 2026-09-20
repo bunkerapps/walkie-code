@@ -58,6 +58,19 @@ function api(path, options = {}) {
   });
 }
 
+// Qué decir cuando algo falla. Antes todo terminaba en "sin conexión con la Mac", incluso cuando la Mac
+// había contestado con un error: ahora se muestra el motivo de verdad y así se sabe qué revisar.
+function motivo(err, quehacia = '') {
+  const texto = String(err?.message || err || '');
+  if (!navigator.onLine) return 'EL TELÉFONO ESTÁ SIN INTERNET';
+  // Un fetch que se cae sin respuesta llega como TypeError, sin más datos.
+  if (err instanceof TypeError || /network|failed to fetch|load failed/i.test(texto)) {
+    return 'NO LLEGO A LA MAC: ¿ESTÁ DESPIERTA Y CON TAILSCALE?';
+  }
+  if (err?.name === 'AbortError') return `SE CORTÓ${quehacia ? ` ${quehacia}` : ''}: TARDÓ DEMASIADO`;
+  return (texto || `NO SE PUDO${quehacia ? ` ${quehacia}` : ''}`).toUpperCase();
+}
+
 // ---------- Pantalla ----------
 
 let state = 'idle';
@@ -237,8 +250,8 @@ async function selectChannel(id, direction) {
     applyChannels(body);
     if (!res.ok) return fail((body.error || 'NO SE PUDO CAMBIAR').toUpperCase());
     if (body.audio) play(body.audio, { squelch: false, rx: false });
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
 }
 
@@ -596,8 +609,8 @@ async function send(blob) {
   try {
     const headers = { 'Content-Type': blob.type, ...(ids.length && { 'X-Walkie-Image': ids.join(',') }) };
     await afterSend(await api('/api/talk', { method: 'POST', headers, body: blob }), sent);
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err, 'AL MANDAR LO QUE DIJISTE'));
   }
 }
 
@@ -613,6 +626,12 @@ async function afterSend(res, sent) {
   if (body.image && photos === sent) clearPhoto();
   const text = body.image ? `📎${body.image > 1 ? `×${body.image}` : ''} ${body.text}` : body.text;
   log('VOS', body.permission ? `${text} (permiso)` : text);
+  // Contestar la pregunta de confianza no abre un turno de Claude: no hay respuesta que esperar.
+  if (body.trust) {
+    setState('idle');
+    if (body.audio) play(body.audio, { squelch: false, rx: false });
+    return;
+  }
   setState('waiting');
 }
 
@@ -654,8 +673,8 @@ async function uploadPhoto(blob) {
     method: 'POST',
     headers: { 'Content-Type': blob.type || 'application/octet-stream' },
     body: blob,
-  }).catch(() => {
-    throw new Error('SIN CONEXIÓN CON LA MAC');
+  }).catch((err) => {
+    throw new Error(motivo(err, 'AL SUBIR LA FOTO'));
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || `ERROR ${res.status}`);
@@ -727,8 +746,8 @@ async function sendPhotoAlone() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ images }),
     }), sent);
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
 }
 
@@ -834,7 +853,7 @@ async function loadFolder(rel = '') {
     $('picker-filter').value = '';
     renderFolders();
   } catch (err) {
-    pickerMessage((err.message || 'SIN CONEXIÓN CON LA MAC').toUpperCase());
+    pickerMessage(motivo(err));
   }
 }
 
@@ -927,8 +946,8 @@ closeButton.addEventListener('click', async () => {
       closePicker();
       if (body.audio) play(body.audio, { squelch: false, rx: false });
     }
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
   renderCloseChannel();
 });
@@ -1006,11 +1025,11 @@ pickerOpen.addEventListener('click', async () => {
     if (!res.ok) return fail((body.error || 'NO SE PUDO ABRIR').toUpperCase());
     applyChannels(body);
     renderChannel(1);
-    if (body.trust) log('PERMISO', 'CLAUDE PREGUNTA SI CONFIÁS EN LA CARPETA. DECÍ "SÍ".');
+    if (body.permission) showPermission(body);
     if (body.audio) play(body.audio, { squelch: false, rx: false });
-  } catch {
+  } catch (err) {
     closePicker();
-    fail('SIN CONEXIÓN CON LA MAC');
+    fail(motivo(err, 'AL ABRIR LA CARPETA'));
   } finally {
     pickerOpen.disabled = false;
     renderFolders();
@@ -1053,12 +1072,12 @@ async function createProject(name) {
     }
     applyChannels(body);
     renderChannel(1);
-    if (body.trust) log('PERMISO', 'CLAUDE PREGUNTA SI CONFIÁS EN LA CARPETA. DECÍ "SÍ".');
+    if (body.permission) showPermission(body);
     setState('idle');
     if (body.audio) play(body.audio, { squelch: false, rx: false });
-  } catch {
+  } catch (err) {
     setState('idle');
-    fail('SIN CONEXIÓN CON LA MAC');
+    fail(motivo(err, 'AL CREAR EL PROYECTO'));
   }
 }
 
@@ -1095,8 +1114,8 @@ async function saveName() {
     applyChannels(body);
     renderChannel(1);
     if (body.audio) play(body.audio, { squelch: false, rx: false });
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
 }
 
@@ -1116,10 +1135,13 @@ let permId = null;
 
 function showPermission({ permission, project }) {
   permId = permission.id;
-  $('perm-title').textContent = `PERMISO · ${(project || '').toUpperCase()}`;
+  $('perm-title').textContent = `PERMISO · ${(project || permission.project || '').toUpperCase()}`;
   $('perm-summary').textContent = permission.summary;
   $('perm-detail').textContent = permission.detail || '';
   $('perm-always').hidden = !permission.always;
+  // La confianza de una carpeta usa el mismo panel, con sus propias palabras en los botones.
+  $('perm-allow').textContent = permission.labels?.allow || 'APROBAR';
+  $('perm-deny').textContent = permission.labels?.deny || 'RECHAZAR';
   $('perm').hidden = false;
 }
 
@@ -1143,10 +1165,18 @@ async function answerPermission(decision) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, decision }),
     });
-    if (!res.ok) return fail(((await res.json()).error || 'NO SE PUDO RESPONDER').toUpperCase());
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return fail((body.error || 'NO SE PUDO RESPONDER').toUpperCase());
+    // La confianza de una carpeta no abre un turno de Claude: no hay respuesta que esperar.
+    if (body.trust) {
+      log('PERMISO', body.trust === 'deny' ? 'CARPETA SIN CONFIANZA' : 'CARPETA DE CONFIANZA', { muted: true });
+      setState('idle');
+      if (body.audio) play(body.audio, { squelch: false, rx: false });
+      return;
+    }
     setState('waiting');
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
 }
 
@@ -1266,8 +1296,8 @@ async function toggleCast() {
     if (body.audio) play(body.audio, { squelch: false, rx: false });
     if (body.file) log('TELE', `${body.project || ''} ${body.file.split('/').pop()}`.trim(), { muted: true });
     await refreshCast();
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
 }
 
@@ -1467,8 +1497,8 @@ async function openVoices() {
   try {
     await refreshVoices();
     renderNotices();
-  } catch {
-    $('voices-list').replaceChildren(listItem('empty', 'SIN CONEXIÓN CON LA MAC'));
+  } catch (err) {
+    $('voices-list').replaceChildren(listItem('empty', motivo(err)));
   }
   stopVoicesPoll();
   voicesTimer = setInterval(() => !document.hidden && refreshVoices().catch(() => {}), VOICES_POLL_MS);
@@ -1488,8 +1518,8 @@ async function chooseVoice(change) {
     Object.assign(voiceState, { current: body.current, rate: body.rate });
     renderVoices();
     play(body.audio, { squelch: false, rx: false });
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
 }
 
@@ -1521,8 +1551,8 @@ async function saveNotices(change) {
     if (!res.ok) return fail((body.error || 'NO SE PUDO GUARDAR').toUpperCase());
     voiceState.notices = body;
     renderNotices();
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
 }
 
@@ -1536,8 +1566,8 @@ async function installVoices() {
     if (!res.ok) return fail((body.error || 'NO SE PUDO ABRIR AJUSTES').toUpperCase());
     voicesNote('EN LA MAC: VOZ DEL SISTEMA → ADMINISTRAR VOCES… → ESPAÑOL → DESCARGÁ UNA MEJORADA O PREMIUM. APARECE SOLA ACÁ.');
     play(body.audio, { squelch: false, rx: false });
-  } catch {
-    fail('SIN CONEXIÓN CON LA MAC');
+  } catch (err) {
+    fail(motivo(err));
   }
 }
 
