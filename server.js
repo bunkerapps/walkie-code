@@ -20,6 +20,7 @@ import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/
 import { recapOf, newestTranscript, readTail, isTranscriptPath } from './lib/transcript.js';
 import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
 import { describePermission, permissionSpeech, canAlways } from './lib/permissions.js';
+import { Preview, scanDevices, castSite, stopCast } from './lib/cast.js';
 import { writeAndSubmit, pressKey, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
@@ -275,6 +276,39 @@ async function handlePushSubscribe(req, res) {
   // Un primer aviso de prueba: si el servicio de push rechaza algo (clave, JWT), se ve en el acto.
   const result = await pushTo(pushStore.list().at(-1), { title: 'WALKIE-CODE', body: 'Avisos activados. Así te llegan las respuestas con el teléfono bloqueado.', tag: 'walkie-code-test', url: '/' });
   return json(res, 200, { ok: result.ok, status: result.status, detail: result.detail || undefined });
+}
+
+// ---------- Tele (Chromecast) ----------
+//
+// La página se publica en la red local solo mientras dura la proyección, y se recarga sola en la tele
+// cada vez que cambia un archivo de esa carpeta: sirve para ir desarrollando en vivo.
+
+const preview = new Preview({ port: cfg.castPort, log });
+let casting = null; // { device, file, url, since }
+
+async function handleCast(req, res) {
+  const { path: wanted, device = cfg.castDevice } = await readJson(req);
+  const { full } = await safeDir(cfg.projectsRoot, path.dirname(String(wanted || '')));
+  const file = path.join(full, path.basename(String(wanted || '')));
+  if (!existsSync(file)) return json(res, 404, { error: 'No encuentro ese archivo.' });
+
+  const url = await preview.start(file);
+  if (!url) return json(res, 500, { error: 'La Mac no tiene IP en la red local.' });
+  await castSite(device, url);
+  casting = { device, file, url, since: Date.now() };
+  log(`+ tele: ${path.basename(file)} en ${device}`);
+  return json(res, 200, { ...casting, audio: await speak(`Listo, ${path.basename(file)} está en la tele.`) });
+}
+
+async function handleCastStop(res) {
+  // Siempre deja de publicar, aunque no haya quedado registrada la proyección.
+  preview.stop();
+  if (!casting) return json(res, 200, { ok: true });
+  await stopCast(casting.device).catch(() => {});
+  preview.stop();
+  log(`- tele: ${path.basename(casting.file)} fuera de ${casting.device}`);
+  casting = null;
+  return json(res, 200, { ok: true });
 }
 
 // ---------- Rutas ----------
@@ -849,6 +883,10 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/close') return await handleClose(req, res);
     if (route === 'POST /api/talk') return await handleTalk(req, res);
     if (route === 'POST /api/permission') return await handlePermission(req, res);
+    if (route === 'GET /api/cast') return json(res, 200, { casting, device: cfg.castDevice });
+    if (route === 'GET /api/cast/devices') return json(res, 200, { devices: await scanDevices(), preferido: cfg.castDevice });
+    if (route === 'POST /api/cast') return await handleCast(req, res);
+    if (route === 'POST /api/cast/stop') return await handleCastStop(res);
     if (route === 'POST /api/image') return await handleImage(req, res);
     if (route === 'POST /api/send') return await handleSend(req, res);
     if (route === 'GET /api/folders') return await handleFolders(res, url);
@@ -891,6 +929,7 @@ const server = http.createServer(async (req, res) => {
 
 async function shutdown() {
   shuttingDown = true;
+  preview.stop();
   if (highlighted) await unhighlight(highlighted.tty);
   whisper?.kill();
   server.close();

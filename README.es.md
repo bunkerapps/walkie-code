@@ -97,6 +97,13 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 - La **cámara** (abajo a la derecha) saca una foto o elige una de la galería. El teléfono la achica a 1600 px y la sube, y se manda junto con la próxima transmisión. **ENVIAR SOLA** la manda sin hablar y **✕** la quita.
 - En la terminal se escribe lo dictado más la ruta de la foto (`~/.walkie-code/uploads/…`), y Claude Code la abre desde ahí. La primera vez puede pedir permiso para leer esa carpeta; para que no pregunte, permití `Read(~/.walkie-code/uploads/**)` en tu configuración de Claude Code. Las fotos se borran a los 7 días.
 
+### Tele (Chromecast)
+
+- `node scripts/cast.js pagina.html` publica esa carpeta en la red local (puerto `castPort`, 8799 por defecto) y la abre en el Chromecast (`castDevice`, "Chromecast" por defecto). Mientras dura la proyección, cada cambio en la carpeta recarga la página en la tele: sirve para desarrollar en vivo.
+- `--devices` lista lo que hay en la red (el preferido va con un asterisco), `--device "Comedor"` usa otro, `--stop` la saca de la tele y deja de publicarla, y `--status` dice qué se está proyectando.
+- Necesita `catt` (`pip install --user catt`). Solo se pueden proyectar archivos dentro de `projectsRoot`.
+- Mientras esté en la tele, esa carpeta es visible para cualquiera en tu red local. Se deja de publicar al sacarla.
+
 ### Voces
 
 - Tocando **AJUSTES** (o el parlante) se elige la voz y la velocidad, entre las voces instaladas en la Mac y ordenadas por calidad (premium, mejorada, estándar). Al final está **VOZ DEL SISTEMA**, la que esté elegida en Ajustes.

@@ -21,6 +21,7 @@ Everything runs on your own machines. Speech-to-text runs locally with Whisper, 
 - **Notifications.** Web Push when the phone is locked, alerts when a long task finishes in any channel, and a warning when Claude hits its usage limit (with the reset time), so the walkie never waits forever.
 - **Photos.** Snap a picture of a bug or a design and send it with your next message.
 - **Open Claude anywhere.** Pick a folder from the phone and a new iTerm2 window starts Claude Code there.
+- **Cast to a TV.** `node scripts/cast.js page.html` serves that folder on your LAN and opens it on a Chromecast, reloading on every change: live development on the big screen. Needs `catt`.
 - **Voices.** Choose any installed macOS voice and speed, including enhanced and premium ones, and set the voice volume (applied on the Mac, since iOS ignores it) and the volume of each sound effect.
 - **Wake the Mac.** Optional: [Walkie Wake](scripts/wake/README.md) is a tiny Python relay for any always-on device on your network (a Raspberry Pi, an old phone…) that wakes the Mac with Wake-on-LAN.
 - **Life bar.** A vertical meter on the side of the radio shows how much of Claude's 5-hour usage limit is left (green, amber, red); tap it for the reset time and the weekly limit. It comes from Claude Code's status line (`hooks/statusline.js`, installed only if you don't have one).
