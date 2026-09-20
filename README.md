@@ -20,6 +20,7 @@ Everything runs on your own machines. Speech-to-text runs locally with Whisper, 
 - **Permissions from the phone.** When Claude asks for permission, the walkie shows exactly what it wants to run with APPROVE / ALWAYS / DENY buttons (or answer "sí"/"no" by voice). The answer goes back through the `PermissionRequest` hook as an official decision; unanswered after 2 minutes, the normal dialog appears on the Mac.
 - **Notifications.** Web Push when the phone is locked, alerts when a long task finishes in any channel, and a warning when Claude hits its usage limit (with the reset time), so the walkie never waits forever.
 - **Photos.** Snap a picture of a bug or a design and send it with your next message.
+- **New project from the phone.** Name it out loud and Walkie-Code creates the folder with a starter page and opens its own Claude Code channel.
 - **Open Claude anywhere.** Pick a folder from the phone and a new iTerm2 window starts Claude Code there.
 - **Cast to a TV.** `node scripts/cast.js page.html` serves that folder on your LAN and opens it on a Chromecast, reloading on every change: live development on the big screen. Needs `catt`.
 - **Voices.** Choose any installed macOS voice and speed, including enhanced and premium ones, and set the voice volume (applied on the Mac, since iOS ignores it) and the volume of each sound effect.

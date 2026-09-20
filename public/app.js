@@ -926,6 +926,7 @@ function closePicker() {
 
 $('new').addEventListener('click', openPicker);
 $('picker-close').addEventListener('click', closePicker);
+$('picker-new').addEventListener('click', openNewProject);
 $('picker-back').addEventListener('click', () => folderView?.parent !== null && loadFolder(folderView.parent));
 $('picker-filter').addEventListener('input', renderFolders);
 
@@ -960,7 +961,51 @@ pickerOpen.addEventListener('click', async () => {
 
 const renamePanel = $('rename');
 
+// El mismo panel sirve para nombrar un proyecto nuevo: se crea la carpeta con una página inicial
+// y se abre su propio canal de Claude Code.
+let creandoProyecto = false;
+
+function openNewProject() {
+  unlockAudio();
+  sfx.click();
+  creandoProyecto = true;
+  $('rename-title').textContent = 'PROYECTO NUEVO';
+  $('rename-folder').textContent = 'SE CREA DENTRO DE TUS PROYECTOS';
+  $('rename-input').value = '';
+  $('rename-input').placeholder = 'PASEOS DE PERROS';
+  renamePanel.hidden = false;
+  $('rename-input').focus();
+}
+
+async function createProject(name) {
+  closePicker();
+  setState('processing');
+  try {
+    const res = await api('/api/project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const body = await res.json();
+    if (!res.ok) {
+      setState('idle');
+      return fail((body.error || 'NO SE PUDO CREAR').toUpperCase());
+    }
+    applyChannels(body);
+    renderChannel(1);
+    if (body.trust) log('PERMISO', 'CLAUDE PREGUNTA SI CONFIÁS EN LA CARPETA. DECÍ "SÍ".');
+    setState('idle');
+    if (body.audio) play(body.audio, { squelch: false, rx: false });
+  } catch {
+    setState('idle');
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+}
+
 function openRename() {
+  creandoProyecto = false;
+  $('rename-title').textContent = 'NOMBRE DEL CANAL';
+  $('rename-input').placeholder = 'VACÍO = NOMBRE DE LA CARPETA';
   const active = channels.find((c) => c.id === activeId);
   if (!active) return log('', 'NO HAY CANAL PARA NOMBRAR', { muted: true });
   sfx.click();
@@ -975,6 +1020,10 @@ async function saveName() {
   $('rename-input').blur();
   renamePanel.hidden = true;
   unlockAudio();
+  if (creandoProyecto) {
+    creandoProyecto = false;
+    return name.trim() ? createProject(name) : log('', 'HACE FALTA UN NOMBRE', { muted: true });
+  }
   try {
     const res = await api('/api/name', {
       method: 'POST',
@@ -1120,6 +1169,72 @@ function openReader(who, text) {
 }
 $('reader-close').addEventListener('click', () => ($('reader').hidden = true));
 
+// ---------- Tele ----------
+//
+// Un botón: proyecta la página más nueva del proyecto sintonizado y la deja recargándose sola en la tele.
+// Volver a tocarlo la saca. Al lado, el dispositivo elegido, que se puede cambiar entre los de la red.
+
+let castState = { casting: null, device: null };
+let castDevices = [];
+
+function renderCast() {
+  const on = Boolean(castState.casting);
+  $('cast-toggle').textContent = on ? 'SACAR' : 'PROYECTAR';
+  $('cast-toggle').setAttribute('aria-pressed', String(on));
+  $('cast-device').textContent = (castState.casting?.device || castState.device || '').toUpperCase() || 'SIN DISPOSITIVO';
+}
+
+async function refreshCast() {
+  try {
+    castState = await (await api('/api/cast')).json();
+    renderCast();
+  } catch {}
+}
+
+async function toggleCast() {
+  unlockAudio();
+  sfx.click();
+  const era = Boolean(castState.casting);
+  $('cast-toggle').textContent = era ? 'SACANDO…' : 'BUSCANDO…';
+  try {
+    const res = await api(era ? '/api/cast/stop' : '/api/cast/auto', { method: 'POST' });
+    const body = await res.json();
+    if (!res.ok) {
+      await refreshCast();
+      return fail((body.error || 'NO SE PUDO').toUpperCase());
+    }
+    if (body.audio) play(body.audio, { squelch: false, rx: false });
+    if (body.file) log('TELE', `${body.project || ''} ${body.file.split('/').pop()}`.trim(), { muted: true });
+    await refreshCast();
+  } catch {
+    fail('SIN CONEXIÓN CON LA MAC');
+  }
+}
+
+// Recorre los dispositivos de la red (Chromecast, parlantes, grupos) y guarda el elegido.
+async function nextCastDevice() {
+  unlockAudio();
+  sfx.click();
+  if (!castDevices.length) {
+    $('cast-device').textContent = 'BUSCANDO…';
+    castDevices = (await (await api('/api/cast/devices')).json().catch(() => ({}))).devices || [];
+  }
+  if (!castDevices.length) return fail('NO ENCONTRÉ DISPOSITIVOS');
+  const actual = castDevices.findIndex((d) => d.name === (castState.device || ''));
+  const elegido = castDevices[(actual + 1) % castDevices.length];
+  const res = await api('/api/cast/device', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device: elegido.name }),
+  });
+  if (!res.ok) return fail('NO SE PUDO GUARDAR');
+  castState.device = elegido.name;
+  renderCast();
+}
+
+$('cast-toggle').addEventListener('click', toggleCast);
+$('cast-device-next').addEventListener('click', nextCastDevice);
+
 // ---------- Voz de las respuestas ----------
 
 const voicesPanel = $('voices');
@@ -1217,6 +1332,7 @@ async function openVoices() {
   try {
     await refreshVoices();
     renderNotices();
+    refreshCast();
   } catch {
     $('voices-list').replaceChildren(listItem('empty', 'SIN CONEXIÓN CON LA MAC'));
   }

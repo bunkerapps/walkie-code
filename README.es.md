@@ -80,6 +80,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 - En la Mac, la pestaña del canal sintonizado se pinta de **naranja** y lleva la marca **"📻 CH03 · proyecto"** mientras haya un teléfono conectado.
 - Al abrir la app y al cambiar de canal, la pantalla muestra un **resumen**: el último pedido y la última respuesta de esa sesión, aunque se hayan escrito desde la Mac. Tocando un mensaje se abre completo, con scroll.
 - **Nombre propio:** manteniendo apretado el nombre del canal se le pone un nombre a ese canal (a esa sesión, no a la carpeta: en una misma carpeta puede haber varias). Se usa en el walkie, en la voz y en la marca de la Mac. Vacío vuelve al nombre de la carpeta.
+- **＋** abre un explorador de carpetas dentro de `projectsRoot`. Con **PROYECTO NUEVO** se crea una carpeta con una página inicial y se abre su propio canal de Claude Code, listo para mostrarlo en la tele.
 - **＋** abre un explorador de carpetas dentro de `projectsRoot`. **ABRIR CLAUDE ACÁ** abre una ventana nueva de iTerm2 con Claude Code en esa carpeta y sintoniza el canal. Si Claude pregunta si confiás en la carpeta, se contesta "sí".
 
 - Para **cerrar un canal**, tocá **＋** y después **✕ CERRAR** (dos toques, para no cerrarlo sin querer): sale de Claude Code con `/exit` y cierra la pestaña de iTerm2.
@@ -98,6 +99,8 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 - En la terminal se escribe lo dictado más la ruta de la foto (`~/.walkie-code/uploads/…`), y Claude Code la abre desde ahí. La primera vez puede pedir permiso para leer esa carpeta; para que no pregunte, permití `Read(~/.walkie-code/uploads/**)` en tu configuración de Claude Code. Las fotos se borran a los 7 días.
 
 ### Tele (Chromecast)
+
+- En el panel de **AJUSTES** hay una fila **TELE**: al tocar PROYECTAR, busca la página más nueva del proyecto sintonizado y la manda a la tele; al tocar SACAR, la baja. Debajo aparece el dispositivo elegido, que se cambia recorriendo los de la red. (Si el canal está parado en la carpeta madre de todos los proyectos, pide sintonizar el canal del proyecto.)
 
 - `node scripts/cast.js pagina.html` publica esa carpeta en la red local (puerto `castPort`, 8799 por defecto) y la abre en el Chromecast (`castDevice`, "Chromecast" por defecto). Mientras dura la proyección, cada cambio en la carpeta recarga la página en la tele: sirve para desarrollar en vivo.
 - `--devices` lista lo que hay en la red (el preferido va con un asterisco), `--device "Comedor"` usa otro, `--stop` la saca de la tele y deja de publicarla, y `--status` dice qué se está proyectando.

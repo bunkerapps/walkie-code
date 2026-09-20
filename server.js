@@ -11,7 +11,7 @@
 import http from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,9 +20,10 @@ import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/
 import { recapOf, newestTranscript, readTail, isTranscriptPath } from './lib/transcript.js';
 import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
 import { describePermission, permissionSpeech, canAlways } from './lib/permissions.js';
-import { Preview, scanDevices, castSite, stopCast } from './lib/cast.js';
+import { Preview, scanDevices, castSite, stopCast, newestPage } from './lib/cast.js';
 import { writeAndSubmit, pressKey, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
+import { slugify, starterPage } from './lib/projects.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
 import { parseChannelCommand, findChannel, missSpeech } from './lib/commands.js';
 import { synthesize, getClipWithGain, parseGain } from './lib/tts.js';
@@ -292,12 +293,41 @@ async function handleCast(req, res) {
   const file = path.join(full, path.basename(String(wanted || '')));
   if (!existsSync(file)) return json(res, 404, { error: 'No encuentro ese archivo.' });
 
+  return castFile(res, file, device);
+}
+
+// Publica la carpeta, la manda a la tele y avisa por voz.
+async function castFile(res, file, device, project) {
   const url = await preview.start(file);
   if (!url) return json(res, 500, { error: 'La Mac no tiene IP en la red local.' });
   await castSite(device, url);
-  casting = { device, file, url, since: Date.now() };
+  casting = { device, file, url, project: project || null, since: Date.now() };
   log(`+ tele: ${path.basename(file)} en ${device}`);
-  return json(res, 200, { ...casting, audio: await speak(`Listo, ${path.basename(file)} está en la tele.`) });
+  const que = project ? `${project} está en la tele` : `${path.basename(file)} está en la tele`;
+  return json(res, 200, { ...casting, audio: await speak(`Listo, ${que}.`) });
+}
+
+// El botón TELE del walkie: proyecta la página más nueva del proyecto sintonizado, sin preguntar nada.
+async function handleCastAuto(req, res) {
+  const { active } = await resolveChannels();
+  if (!active?.cwd) return json(res, 409, { error: 'No hay ningún canal sintonizado.' });
+  // En la carpeta madre buscaría en todos los proyectos a la vez: mejor que elija el canal del proyecto.
+  if (path.resolve(active.cwd) === path.resolve(cfg.projectsRoot)) {
+    return json(res, 409, { error: 'Sintonizá el canal del proyecto que querés ver en la tele.' });
+  }
+  const file = await newestPage(active.cwd);
+  if (!file) return json(res, 404, { error: `No encontré una página en ${active.project}.` });
+  return castFile(res, file, cfg.castDevice, active.project);
+}
+
+// Guarda el dispositivo preferido (se puede elegir otro de los que hay en la red).
+async function handleCastDevice(req, res) {
+  const { device } = await readJson(req);
+  if (!device || typeof device !== 'string') return json(res, 400, { error: 'Falta el dispositivo.' });
+  cfg.castDevice = device;
+  saveConfig({ castDevice: device });
+  log(`= tele: dispositivo ${device}`);
+  return json(res, 200, { device });
 }
 
 async function handleCastStop(res) {
@@ -680,11 +710,32 @@ async function handleFolders(res, url) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Crea una carpeta nueva dentro de projectsRoot con una página inicial, y abre ahí su canal de Claude.
+async function handleProject(req, res) {
+  const { name } = await readJson(req);
+  const slug = slugify(name || '');
+  if (!slug) return json(res, 400, { error: 'Decime un nombre para el proyecto.' });
+
+  const { rootReal } = await safeDir(cfg.projectsRoot, '');
+  const dir = path.join(rootReal, slug);
+  if (existsSync(dir)) return json(res, 409, { error: `Ya existe un proyecto llamado ${slug}.` });
+
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, 'index.html'), starterPage(String(name).trim()));
+  log(`+ proyecto nuevo: ${slug}`);
+  return openClaudeIn(req, res, dir, `Listo, creé ${slug} y abrí Claude ahí.`);
+}
+
 // Abre una ventana de iTerm2 con Claude Code en la carpeta elegida y sintoniza ese canal.
 async function handleOpen(req, res) {
-  const clientId = req.headers['x-walkie-client'] || null;
   const { path: rel = '' } = await readJson(req);
   const { full } = await safeDir(cfg.projectsRoot, rel);
+  return openClaudeIn(req, res, full);
+}
+
+// Abre Claude Code en esa carpeta, espera a que arranque y sintoniza ese canal.
+async function openClaudeIn(req, res, full, intro) {
+  const clientId = req.headers['x-walkie-client'] || null;
   const session = await openClaude(full, cfg.claudeCommand);
   log(`+ nueva sesión de Claude en ${full}`);
 
@@ -707,7 +758,7 @@ async function handleOpen(req, res) {
   const asksTrust = /trust/i.test(screen);
   if (asksTrust) pending.set(target.tty, { project: target.project, clientId, permission: true });
 
-  const speech = `Canal ${index + 1}. ${target.project}. ` +
+  const speech = `${intro || `Canal ${index + 1}. ${target.project}.`} ` +
     (asksTrust ? 'Claude pregunta si confiás en esta carpeta. Decí sí para aceptar.' : 'Claude está listo.');
   return json(res, 200, { ...channelsPayload({ ...found, active: target }), trust: asksTrust, audio: await speak(speech) });
 }
@@ -886,6 +937,8 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/cast') return json(res, 200, { casting, device: cfg.castDevice });
     if (route === 'GET /api/cast/devices') return json(res, 200, { devices: await scanDevices(), preferido: cfg.castDevice });
     if (route === 'POST /api/cast') return await handleCast(req, res);
+    if (route === 'POST /api/cast/auto') return await handleCastAuto(req, res);
+    if (route === 'POST /api/cast/device') return await handleCastDevice(req, res);
     if (route === 'POST /api/cast/stop') return await handleCastStop(res);
     if (route === 'POST /api/image') return await handleImage(req, res);
     if (route === 'POST /api/send') return await handleSend(req, res);
@@ -897,6 +950,7 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/voices/install') return await handleInstallVoices(res);
     if (route === 'POST /api/name') return await handleName(req, res);
     if (route === 'POST /api/open') return await handleOpen(req, res);
+    if (route === 'POST /api/project') return await handleProject(req, res);
     if (route === 'POST /api/hook') return await handleHook(req, res);
     if (route === 'GET /api/push') return json(res, 200, { publicKey: pushStore.vapid.publicKey });
     if (route === 'POST /api/push/subscribe') return await handlePushSubscribe(req, res);

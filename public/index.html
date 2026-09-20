@@ -103,6 +103,7 @@
       <ul class="picker-list" id="picker-list"></ul>
       <button type="button" class="picker-close-channel" id="close-channel" hidden>✕ CERRAR ESTE CANAL</button>
       <button type="button" class="picker-open" id="picker-open">▶ ABRIR CLAUDE ACÁ</button>
+      <button type="button" class="picker-btn picker-nuevo" id="picker-new">＋ PROYECTO NUEVO</button>
     </section>
 
     <section class="picker" id="voices" hidden aria-label="Ajustes">
@@ -141,6 +142,14 @@
           <button type="button" class="picker-btn" id="notices-up" aria-label="Avisar después">＋</button>
         </div>
       </div>
+      <div class="rate">
+        <span class="rate-label">TELE</span>
+        <button type="button" class="picker-btn picker-toggle" id="cast-toggle" aria-label="Proyectar el proyecto en la tele">NO</button>
+      </div>
+      <div class="rate" id="cast-device-row">
+        <span class="rate-label" id="cast-device">CHROMECAST</span>
+        <button type="button" class="picker-btn" id="cast-device-next" aria-label="Elegir otro dispositivo">▸</button>
+      </div>
       <ul class="picker-list" id="voices-list"></ul>
       <p class="voices-note" id="voices-note" hidden></p>
       <button type="button" class="picker-open" id="voices-install">▶ INSTALAR MÁS VOCES</button>
@@ -161,7 +170,7 @@
 
     <section class="picker picker-small" id="rename" hidden aria-label="Nombre del canal">
       <header class="picker-head">
-        <span class="picker-path">NOMBRE DEL CANAL</span>
+        <span class="picker-path" id="rename-title">NOMBRE DEL CANAL</span>
         <button type="button" class="picker-btn" id="rename-close" aria-label="Cerrar">✕</button>
       </header>
       <p class="rename-folder" id="rename-folder"></p>
