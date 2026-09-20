@@ -2,6 +2,18 @@
 
 All notable changes to Walkie-Code are documented here. The project follows [Semantic Versioning](https://semver.org).
 
+## [1.4.0] — 2026-09-20
+
+### Added
+
+- **Remote control for the projected page.** The TV has no touch or scroll of its own, so the phone became a trackpad: drag moves a pointer drawn on the page, a tap clicks, press-and-drag lets you drag things (like a before/after slider), and four keys move through the page. The page listens with long polling, so it reacts without a visible delay.
+- **Several photos at once.** Up to six from the gallery: they upload in parallel, the screen shows the progress and all the paths travel at the end of the message. If one fails to upload, nothing is sent.
+- **Laboratorio.** Projects created from the phone are born in a `laboratorio` folder and are shown as PRUEBA. Inside one there are two more actions: promote it out of the lab, or delete it — with confirmation — to the Trash. Nothing outside the lab can be deleted or moved, and a project with an open channel is never deleted.
+
+### Changed
+
+- The TV lives in its own key at the bottom, with the classic cast icon, and opens a panel with the device, cast/stop, the trackpad and the scroll keys. Replay and mute are icons now too.
+
 ## [1.3.0] — 2026-09-20
 
 ### Added
@@ -81,6 +93,7 @@ First official release: a push-to-talk walkie-talkie for Claude Code, from an iP
 
   See [SECURITY.md](SECURITY.md).
 
+[1.4.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.4.0
 [1.3.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.3.0
 [1.2.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.2.0
 [1.1.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.1.0
