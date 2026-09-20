@@ -832,6 +832,8 @@ function renderFolders() {
   $('picker-path').textContent = view.rel || `~/${view.name}`;
   $('picker-back').disabled = view.parent === null;
   pickerOpen.textContent = view.active ? '▶ OTRO CLAUDE ACÁ' : '▶ ABRIR CLAUDE ACÁ';
+  $('picker-lab').hidden = !view.lab;
+  $('picker-delete').textContent = '🗑 BORRAR';
 
   const query = $('picker-filter').value.trim().toLowerCase();
   const rows = view.folders.filter((f) => f.name.toLowerCase().includes(query));
@@ -847,7 +849,7 @@ function renderFolders() {
       name.textContent = folder.name;
       button.append(name);
       if (folder.alias) name.textContent = `${folder.name} · ${folder.alias}`;
-      for (const [on, label] of [[folder.active, 'EN USO'], [folder.git, 'GIT']]) {
+      for (const [on, label] of [[folder.active, 'EN USO'], [folder.lab, 'PRUEBA'], [folder.git, 'GIT']]) {
         if (!on) continue;
         const tag = document.createElement('span');
         tag.className = 'tag';
@@ -927,6 +929,52 @@ function closePicker() {
 $('new').addEventListener('click', openPicker);
 $('picker-close').addEventListener('click', closePicker);
 $('picker-new').addEventListener('click', openNewProject);
+
+// Ascender: sale del laboratorio y pasa a ser un proyecto de verdad.
+$('picker-promote').addEventListener('click', async () => {
+  unlockAudio();
+  sfx.click();
+  const rel = folderView?.rel;
+  const res = await api('/api/project/promote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: rel }),
+  }).catch(() => null);
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok) return fail((body?.error || 'NO SE PUDO ASCENDER').toUpperCase());
+  log('PROYECTO', `${body.promoted.toUpperCase()} YA ES UN PROYECTO DE VERDAD`, { muted: true });
+  if (body.audio) play(body.audio, { squelch: false, rx: false });
+  loadFolder(folderView?.parent ?? '');
+});
+
+// Borrar: pide confirmación y manda la carpeta a la Papelera (nunca borra de verdad).
+let borrarConfirmado = false;
+
+$('picker-delete').addEventListener('click', async () => {
+  unlockAudio();
+  sfx.click();
+  if (!borrarConfirmado) {
+    borrarConfirmado = true;
+    $('picker-delete').textContent = '¿SEGURO? TOCÁ DE NUEVO';
+    setTimeout(() => {
+      borrarConfirmado = false;
+      if (!$('picker-lab').hidden) $('picker-delete').textContent = '🗑 BORRAR';
+    }, 4000);
+    return;
+  }
+  borrarConfirmado = false;
+  const rel = folderView?.rel;
+  const res = await api('/api/project/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: rel }),
+  }).catch(() => null);
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok) return fail((body?.error || 'NO SE PUDO BORRAR').toUpperCase());
+  log('PROYECTO', `${body.deleted.toUpperCase()} FUE A LA PAPELERA`, { muted: true });
+  if (body.audio) play(body.audio, { squelch: false, rx: false });
+  loadFolder(folderView?.parent ?? '');
+});
 $('picker-back').addEventListener('click', () => folderView?.parent !== null && loadFolder(folderView.parent));
 $('picker-filter').addEventListener('input', renderFolders);
 

@@ -11,9 +11,11 @@
 import http from 'node:http';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
+import { readFile, mkdir, writeFile, rename } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, HOME_DIR } from './lib/config.js';
 import { toSpeech, cleanTranscript, permissionAnswer, recapSpeech } from './lib/speech.js';
@@ -23,7 +25,7 @@ import { describePermission, permissionSpeech, canAlways } from './lib/permissio
 import { Preview, scanDevices, castSite, stopCast, newestPage } from './lib/cast.js';
 import { writeAndSubmit, pressKey, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { listFolders, safeDir } from './lib/folders.js';
-import { slugify, starterPage } from './lib/projects.js';
+import { slugify, starterPage, inLab, isLabProject } from './lib/projects.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
 import { parseChannelCommand, findChannel, missSpeech } from './lib/commands.js';
 import { synthesize, getClipWithGain, parseGain } from './lib/tts.js';
@@ -47,6 +49,8 @@ const MIME = {
   '.m4a': 'audio/mp4',
   '.webmanifest': 'application/manifest+json',
 };
+
+const run = promisify(execFile);
 
 const log = (...args) => console.log(new Date().toLocaleTimeString('es-AR'), ...args);
 
@@ -705,19 +709,20 @@ async function handleClose(req, res) {
 async function handleFolders(res, url) {
   const { channels } = await channelsNow();
   const activeDirs = new Set(channels.map((c) => c.cwd));
-  return json(res, 200, await listFolders(cfg.projectsRoot, url.searchParams.get('path') || '', activeDirs, cfg.names));
+  return json(res, 200, await listFolders(cfg.projectsRoot, url.searchParams.get('path') || '', activeDirs, cfg.names, cfg.labFolder));
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Crea una carpeta nueva dentro de projectsRoot con una página inicial, y abre ahí su canal de Claude.
 async function handleProject(req, res) {
-  const { name } = await readJson(req);
+  const { name, real = false } = await readJson(req);
   const slug = slugify(name || '');
   if (!slug) return json(res, 400, { error: 'Decime un nombre para el proyecto.' });
 
   const { rootReal } = await safeDir(cfg.projectsRoot, '');
-  const dir = path.join(rootReal, slug);
+  // Por defecto nace en el laboratorio; "real" lo crea directamente entre los proyectos de verdad.
+  const dir = real ? path.join(rootReal, slug) : path.join(rootReal, cfg.labFolder, slug);
   if (existsSync(dir)) return json(res, 409, { error: `Ya existe un proyecto llamado ${slug}.` });
 
   await mkdir(dir, { recursive: true });
@@ -731,6 +736,45 @@ async function handleOpen(req, res) {
   const { path: rel = '' } = await readJson(req);
   const { full } = await safeDir(cfg.projectsRoot, rel);
   return openClaudeIn(req, res, full);
+}
+
+// Borrar y ascender solo valen dentro del laboratorio: afuera, el walkie no toca nada.
+async function labProject(rel) {
+  const { full } = await safeDir(cfg.projectsRoot, rel || '');
+  if (!isLabProject(cfg.projectsRoot, cfg.labFolder, full)) {
+    throw Object.assign(new Error(`Eso solo se puede con los proyectos del ${cfg.labFolder}.`), { status: 403 });
+  }
+  return full;
+}
+
+// No borra de verdad: manda la carpeta a la Papelera, así siempre se puede recuperar.
+async function handleProjectDelete(req, res) {
+  const { path: rel } = await readJson(req);
+  const dir = await labProject(rel);
+  const { channels: open = [] } = await channelsNow().catch(() => ({}));
+  if (open.some((c) => c.cwd === dir)) {
+    return json(res, 409, { error: 'Ese proyecto tiene un canal abierto: cerralo primero.' });
+  }
+  // Se mueve a ~/.Trash, no se borra: recuperable desde la Papelera. (Finder tarda o se cuelga; mejor mover.)
+  const nombre = path.basename(dir);
+  const papelera = path.join(os.homedir(), '.Trash', nombre);
+  const destino = existsSync(papelera) ? `${papelera} ${new Date().toISOString().slice(0, 19)}` : papelera;
+  await rename(dir, destino);
+  log(`- proyecto a la papelera: ${nombre}`);
+  return json(res, 200, { deleted: nombre, audio: await speak(`Mandé ${nombre} a la papelera.`) });
+}
+
+// Ascender: sale del laboratorio y pasa a ser un proyecto de verdad.
+async function handleProjectPromote(req, res) {
+  const { path: rel } = await readJson(req);
+  const dir = await labProject(rel);
+  const { rootReal } = await safeDir(cfg.projectsRoot, '');
+  const destino = path.join(rootReal, path.basename(dir));
+  if (existsSync(destino)) return json(res, 409, { error: `Ya hay un proyecto llamado ${path.basename(dir)}.` });
+  await rename(dir, destino);
+  const nombre = path.basename(destino);
+  log(`= proyecto ascendido: ${nombre}`);
+  return json(res, 200, { promoted: nombre, audio: await speak(`${nombre} ya es un proyecto de verdad.`) });
 }
 
 // Abre Claude Code en esa carpeta, espera a que arranque y sintoniza ese canal.
@@ -951,6 +995,8 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/name') return await handleName(req, res);
     if (route === 'POST /api/open') return await handleOpen(req, res);
     if (route === 'POST /api/project') return await handleProject(req, res);
+    if (route === 'POST /api/project/delete') return await handleProjectDelete(req, res);
+    if (route === 'POST /api/project/promote') return await handleProjectPromote(req, res);
     if (route === 'POST /api/hook') return await handleHook(req, res);
     if (route === 'GET /api/push') return json(res, 200, { publicKey: pushStore.vapid.publicKey });
     if (route === 'POST /api/push/subscribe') return await handlePushSubscribe(req, res);

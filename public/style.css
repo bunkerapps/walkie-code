@@ -705,6 +705,10 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
   .knob { width: 36px; height: 36px; font-size: 20px; }
 }
 
+.picker-lab { display: flex; gap: 8px; }
+.picker-lab[hidden] { display: none; }
+.picker-borrar { color: #ff8a70; }
+
 .picker-nuevo { width: 100%; height: 44px; font-size: 20px; letter-spacing: 0.08em; }
 
 /* La tecla de la tele lleva texto largo ("PROYECTAR"): se ensancha con el contenido. */
