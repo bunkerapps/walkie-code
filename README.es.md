@@ -163,6 +163,8 @@ npm start        # el servidor en primer plano
 
 Ver [CONTRIBUTING.md](CONTRIBUTING.md). No pruebes contra tus sesiones reales de Claude Code: usá `WALKIE_CODE_HOME` y una ventana de iTerm2 aparte.
 
+Historial de versiones: [CHANGELOG.es.md](CHANGELOG.es.md).
+
 ## Licencia
 
 [MIT](LICENSE)

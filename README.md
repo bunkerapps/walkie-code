@@ -121,6 +121,8 @@ npm start        # run the server in the foreground
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Please do not test against your real Claude Code sessions: use `WALKIE_CODE_HOME` and a separate iTerm2 window.
 
+Version history: [CHANGELOG.md](CHANGELOG.md).
+
 ## License
 
 [MIT](LICENSE)

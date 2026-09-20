@@ -2,6 +2,8 @@
 
 All notable changes to Walkie-Code are documented here. The project follows [Semantic Versioning](https://semver.org).
 
+[Leer en español](CHANGELOG.es.md)
+
 ## [1.4.0] — 2026-09-20
 
 ### Added
