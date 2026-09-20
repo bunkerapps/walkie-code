@@ -2,6 +2,13 @@
 
 All notable changes to Walkie-Code are documented here. The project follows [Semantic Versioning](https://semver.org).
 
+## [1.3.0] — 2026-09-20
+
+### Added
+
+- **Cast to a TV.** A page from the tuned project can be shown on a Chromecast: the Mac serves that folder on the local network, only while casting, and every change reloads the page on the TV, so you can develop live on the big screen. The TELE row in settings casts the project's newest page and takes it down again; the device is picked from the ones found on the network and remembered. Also available from the terminal with `scripts/cast.js` (`--devices`, `--device`, `--stop`, `--status`). Needs `catt`.
+- **New project from the phone.** PROYECTO NUEVO, in the folder browser, creates a folder inside `projectsRoot` with a starter page and opens its own Claude Code channel, ready to cast.
+
 ## [1.2.0] — 2026-09-19
 
 ### Added
@@ -74,6 +81,7 @@ First official release: a push-to-talk walkie-talkie for Claude Code, from an iP
 
   See [SECURITY.md](SECURITY.md).
 
+[1.3.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.3.0
 [1.2.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.2.0
 [1.1.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.1.0
 [1.0.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.0.0
