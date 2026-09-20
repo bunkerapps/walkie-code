@@ -22,6 +22,7 @@ Everything runs on your own machines. Speech-to-text runs locally with Whisper, 
 - **Photos.** Snap a picture of a bug or a design — or pick several from the gallery — and send them with your next message.
 - **New project from the phone.** Name it out loud and Walkie-Code creates the folder with a starter page and opens its own Claude Code channel. Projects are born inside a `laboratorio` folder, where everything is disposable: promote the good ones, send the rest to the Trash. Nothing outside that folder can be deleted.
 - **Open Claude anywhere.** Pick a folder from the phone and a new iTerm2 window starts Claude Code there.
+- **Remote control for the TV.** The cast key opens a panel with the device, cast/stop, a trackpad that moves a pointer and clicks on the projected page, and scroll keys — the TV has no touch or scroll of its own.
 - **Cast to a TV.** `node scripts/cast.js page.html` serves that folder on your LAN and opens it on a Chromecast, reloading on every change: live development on the big screen. Needs `catt`.
 - **Voices.** Choose any installed macOS voice and speed, including enhanced and premium ones, and set the voice volume (applied on the Mac, since iOS ignores it) and the volume of each sound effect.
 - **Wake the Mac.** Optional: [Walkie Wake](scripts/wake/README.md) is a tiny Python relay for any always-on device on your network (a Raspberry Pi, an old phone…) that wakes the Mac with Wake-on-LAN.

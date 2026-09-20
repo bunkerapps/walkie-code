@@ -68,7 +68,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 - Lo que dictás le llega a Claude con una instrucción extra para que **responda para escuchar**: corto, conversado, sin listas largas, tablas ni bloques de código (si hacen falta, los deja en la terminal y los menciona). Lo que tipeás en la Mac no cambia. Se apaga con `"voiceStyle": false`, y el texto de la instrucción está en `lib/voice-style.js`.
 - Si llega una respuesta de **otro canal**, no se encima con lo que estás escuchando: suena un "pi-pi", la pantalla muestra **MSJ CH03** y se escucha cuando vas a ese canal (tocando el aviso, deslizando o por voz). Una respuesta del canal actual que llega mientras suena otra cosa espera su turno.
 - La respuesta suena **solo en el dispositivo que habló**. Si la web está abierta en otro lado, ahí solo se ve el texto.
-- **REPETIR** lee en voz alta el resumen del canal (lo último que se pidió y lo que respondió Claude) y **SILENCIO** corta la lectura; están abajo, en la zona del pulgar. Arriba, lejos del pulgar para no tocarla sin querer, **ESC** interrumpe a Claude.
+- Abajo, en la zona del pulgar, cuatro teclas con ícono: **repetir** (lee el resumen del canal), **silencio** (corta la lectura), **transmitir** (la tele) y **cámara**. Arriba, lejos del pulgar para no tocarla sin querer, **ESC** interrumpe a Claude.
 - Si Claude pide un **permiso** en el canal al que le hablaste, el walkie muestra qué quiere hacer (el comando o el archivo) con **APROBAR**, **SIEMPRE** (no vuelve a preguntar por eso en el proyecto) y **RECHAZAR**; también se contesta diciendo "sí" o "no". La respuesta vuelve por el hook como decisión oficial, sin tocar teclas en la Mac. Si nadie contesta en 2 minutos, el diálogo aparece en la Mac como siempre.
 
 ### Canales
@@ -100,7 +100,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 
 ### Tele (Chromecast)
 
-- En el panel de **AJUSTES** hay una fila **TELE**: al tocar PROYECTAR, busca la página más nueva del proyecto sintonizado y la manda a la tele; al tocar SACAR, la baja. Debajo aparece el dispositivo elegido, que se cambia recorriendo los de la red. (Si el canal está parado en la carpeta madre de todos los proyectos, pide sintonizar el canal del proyecto.)
+- La tecla de **transmisión** (abajo, la pantallita con ondas) abre el panel de la tele: elegir dispositivo, **PROYECTAR** la página más nueva del proyecto sintonizado (o **SACAR DE LA TELE**), un **trackpad** para mover un puntero y hacer clic en la página proyectada, y cuatro teclas para moverse por ella (principio, subir, bajar, final). En la tele no se puede tocar ni scrollear: por eso el control va desde el teléfono.
 
 - `node scripts/cast.js pagina.html` publica esa carpeta en la red local (puerto `castPort`, 8799 por defecto) y la abre en el Chromecast (`castDevice`, "Chromecast" por defecto). Mientras dura la proyección, cada cambio en la carpeta recarga la página en la tele: sirve para desarrollar en vivo.
 - `--devices` lista lo que hay en la red (el preferido va con un asterisco), `--device "Comedor"` usa otro, `--stop` la saca de la tele y deja de publicarla, y `--status` dice qué se está proyectando.

@@ -78,8 +78,9 @@
 
     <nav class="keys">
       <!-- Abajo, en la zona del pulgar: lo que se usa seguido. La cámara a la derecha, como en las apps de mensajes. -->
-      <button type="button" class="key" id="replay">REPETIR</button>
-      <button type="button" class="key" id="mute">SILENCIO</button>
+      <button type="button" class="key key-icono" id="replay" aria-label="Repetir la última respuesta"><svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 1 3 6.7"/><path d="M3 20v-5h5"/></svg></button>
+      <button type="button" class="key key-icono" id="mute" aria-label="Cortar la lectura"><svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l4 6M21 9l-4 6"/></svg></button>
+      <button type="button" class="key key-icono" id="tele-key" aria-label="Transmitir a la tele"><svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="13" rx="2"/><path d="M6 21h12"/><path d="M6.5 14.5a4 4 0 0 1 4 4M6.5 11a7.5 7.5 0 0 1 7.5 7.5"/><circle cx="6.6" cy="18.4" r="0.6" fill="currentColor"/></svg></button>
       <button type="button" class="key key-camera" id="photo-key" aria-label="Sacar o elegir una foto para Claude"><svg class="key-icon" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
       <input type="file" id="photo-input" accept="image/*" multiple hidden>
     </nav>
@@ -146,17 +147,30 @@
           <button type="button" class="picker-btn" id="notices-up" aria-label="Avisar después">＋</button>
         </div>
       </div>
-      <div class="rate">
-        <span class="rate-label">TELE</span>
-        <button type="button" class="picker-btn picker-toggle" id="cast-toggle" aria-label="Proyectar el proyecto en la tele">NO</button>
-      </div>
-      <div class="rate" id="cast-device-row">
-        <span class="rate-label" id="cast-device">CHROMECAST</span>
-        <button type="button" class="picker-btn" id="cast-device-next" aria-label="Elegir otro dispositivo">▸</button>
-      </div>
       <ul class="picker-list" id="voices-list"></ul>
       <p class="voices-note" id="voices-note" hidden></p>
       <button type="button" class="picker-open" id="voices-install">▶ INSTALAR MÁS VOCES</button>
+    </section>
+
+    <section class="picker" id="control" hidden aria-label="Transmitir a la tele">
+      <header class="picker-head">
+        <span class="picker-path">TELE</span>
+        <button type="button" class="picker-btn" id="control-close" aria-label="Cerrar">✕</button>
+      </header>
+      <div class="rate">
+        <span class="rate-label" id="cast-device">CHROMECAST</span>
+        <button type="button" class="picker-btn" id="cast-device-next" aria-label="Elegir otro dispositivo">▸</button>
+      </div>
+      <button type="button" class="picker-open" id="cast-toggle">▶ PROYECTAR</button>
+      <div class="pad" id="pad">
+        <span class="pad-hint">ARRASTRÁ PARA MOVER<br>TOCÁ PARA HACER CLIC<br>MANTENÉ Y ARRASTRÁ PARA LLEVAR</span>
+      </div>
+      <div class="control-scroll">
+        <button type="button" class="picker-btn" id="scroll-top" aria-label="Ir al principio">⤒</button>
+        <button type="button" class="picker-btn" id="scroll-up" aria-label="Subir">▲</button>
+        <button type="button" class="picker-btn" id="scroll-down" aria-label="Bajar">▼</button>
+        <button type="button" class="picker-btn" id="scroll-bottom" aria-label="Ir al final">⤓</button>
+      </div>
     </section>
 
     <section class="picker picker-small perm" id="perm" hidden aria-label="Permiso">

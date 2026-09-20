@@ -987,6 +987,17 @@ const server = http.createServer(async (req, res) => {
     if (route === 'POST /api/cast/auto') return await handleCastAuto(req, res);
     if (route === 'POST /api/cast/device') return await handleCastDevice(req, res);
     if (route === 'POST /api/cast/stop') return await handleCastStop(res);
+    // Control remoto de la página que está en la tele: puntero, clics y scroll.
+    if (route === 'POST /api/cast/control') {
+      if (!casting) return json(res, 409, { error: 'No hay nada en la tele.' });
+      const { tipo, dx = 0, dy = 0, accion } = await readJson(req);
+      const cuerpo = { tipo, dx: Number(dx) || 0, dy: Number(dy) || 0 };
+      if (tipo === 'mover') preview.comando(cuerpo);
+      else if (['apretar', 'soltar'].includes(tipo)) preview.comando({ tipo });
+      else if (tipo === 'scroll' && ['up', 'down', 'top', 'bottom'].includes(accion)) preview.comando({ tipo, accion });
+      else return json(res, 400, { error: 'Orden inválida.' });
+      return json(res, 200, { ok: true });
+    }
     if (route === 'POST /api/image') return await handleImage(req, res);
     if (route === 'POST /api/send') return await handleSend(req, res);
     if (route === 'GET /api/folders') return await handleFolders(res, url);

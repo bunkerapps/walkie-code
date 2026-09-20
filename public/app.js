@@ -1239,7 +1239,7 @@ let castDevices = [];
 
 function renderCast() {
   const on = Boolean(castState.casting);
-  $('cast-toggle').textContent = on ? 'SACAR' : 'PROYECTAR';
+  $('cast-toggle').textContent = on ? '■ SACAR DE LA TELE' : '▶ PROYECTAR';
   $('cast-toggle').setAttribute('aria-pressed', String(on));
   $('cast-device').textContent = (castState.casting?.device || castState.device || '').toUpperCase() || 'SIN DISPOSITIVO';
 }
@@ -1255,7 +1255,7 @@ async function toggleCast() {
   unlockAudio();
   sfx.click();
   const era = Boolean(castState.casting);
-  $('cast-toggle').textContent = era ? 'SACANDO…' : 'BUSCANDO…';
+  $('cast-toggle').textContent = era ? 'SACANDO…' : 'BUSCANDO LA PÁGINA…';
   try {
     const res = await api(era ? '/api/cast/stop' : '/api/cast/auto', { method: 'POST' });
     const body = await res.json();
@@ -1292,6 +1292,81 @@ async function nextCastDevice() {
   renderCast();
 }
 
+// ---------- Control de la tele ----------
+//
+// En la tele no se puede scrollear ni tocar: el walkie hace de trackpad. Arrastrar mueve un puntero
+// dibujado en la página, un toque hace clic, y mantener apretado permite arrastrar (por ejemplo, el
+// comparador de fotos). Abajo, cuatro teclas para moverse por la página.
+
+const PAD_SENSIBILIDAD = 2.2;
+let padPresionado = null;
+
+function controlTele(orden) {
+  return api('/api/cast/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(orden),
+  }).catch(() => null);
+}
+
+function openControl() {
+  unlockAudio();
+  sfx.click();
+  $('control').hidden = false;
+  refreshCast();
+}
+
+$('control-close').addEventListener('click', () => ($('control').hidden = true));
+for (const [id, accion] of [['scroll-top', 'top'], ['scroll-up', 'up'], ['scroll-down', 'down'], ['scroll-bottom', 'bottom']]) {
+  $(id).addEventListener('click', () => {
+    sfx.click();
+    controlTele({ tipo: 'scroll', accion });
+  });
+}
+
+const pad = $('pad');
+
+pad.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  pad.setPointerCapture(e.pointerId);
+  pad.classList.add('apretado');
+  padPresionado = { x: e.clientX, y: e.clientY, desde: Date.now(), movido: 0, arrastrando: false };
+  // Mantener apretado sin mover = agarrar (para arrastrar el comparador o un control de la página).
+  padPresionado.timer = setTimeout(() => {
+    if (!padPresionado || padPresionado.movido > 10) return;
+    padPresionado.arrastrando = true;
+    controlTele({ tipo: 'apretar' });
+  }, 450);
+});
+
+pad.addEventListener('pointermove', (e) => {
+  if (!padPresionado) return;
+  const dx = e.clientX - padPresionado.x;
+  const dy = e.clientY - padPresionado.y;
+  if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+  padPresionado.x = e.clientX;
+  padPresionado.y = e.clientY;
+  padPresionado.movido += Math.abs(dx) + Math.abs(dy);
+  controlTele({ tipo: 'mover', dx: Math.round(dx * PAD_SENSIBILIDAD), dy: Math.round(dy * PAD_SENSIBILIDAD) });
+});
+
+for (const tipo of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+  pad.addEventListener(tipo, async () => {
+    if (!padPresionado) return;
+    const { desde, movido, arrastrando, timer } = padPresionado;
+    padPresionado = null;
+    clearTimeout(timer);
+    pad.classList.remove('apretado');
+    if (arrastrando) return controlTele({ tipo: 'soltar' });
+    // Toque corto y quieto = clic.
+    if (movido < 12 && Date.now() - desde < 400) {
+      await controlTele({ tipo: 'apretar' });
+      controlTele({ tipo: 'soltar' });
+    }
+  });
+}
+
+$('tele-key').addEventListener('click', openControl);
 $('cast-toggle').addEventListener('click', toggleCast);
 $('cast-device-next').addEventListener('click', nextCastDevice);
 
@@ -1392,7 +1467,6 @@ async function openVoices() {
   try {
     await refreshVoices();
     renderNotices();
-    refreshCast();
   } catch {
     $('voices-list').replaceChildren(listItem('empty', 'SIN CONEXIÓN CON LA MAC'));
   }

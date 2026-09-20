@@ -705,6 +705,23 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
   .knob { width: 36px; height: 36px; font-size: 20px; }
 }
 
+/* Trackpad para manejar la página que está en la tele */
+.pad {
+  flex: 1;
+  min-height: 12rem;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--lcd-ghost);
+  border: 2px dashed rgba(28, 38, 22, 0.3);
+  touch-action: none;
+  text-align: center;
+}
+.pad.apretado { background: rgba(28, 38, 22, 0.28); border-style: solid; }
+.pad-hint { font-family: var(--lcd-font); font-size: 20px; line-height: 1.15; color: var(--lcd-ink); opacity: 0.75; }
+.control-scroll { display: flex; gap: 8px; }
+.control-scroll .picker-btn { flex: 1; height: 46px; font-size: 24px; }
+
 .picker-lab { display: flex; gap: 8px; }
 .picker-lab[hidden] { display: none; }
 .picker-borrar { color: #ff8a70; }
@@ -714,3 +731,8 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 /* La tecla de la tele lleva texto largo ("PROYECTAR"): se ensancha con el contenido. */
 #cast-toggle { width: auto; min-width: 40px; padding: 0 10px; font-size: 20px; }
 #cast-device { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Teclas de abajo con ícono: repetir, silencio, transmitir y cámara */
+.key-icono { display: grid; place-items: center; }
+.key-icono .key-icon { width: 26px; height: 26px; }
+#cast-toggle { width: 100%; }
