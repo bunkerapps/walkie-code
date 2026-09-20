@@ -95,7 +95,7 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 
 ### Fotos
 
-- La **cámara** (abajo a la derecha) saca una foto o elige una de la galería. El teléfono la achica a 1600 px y la sube, y se manda junto con la próxima transmisión. **ENVIAR SOLA** la manda sin hablar y **✕** la quita.
+- La **cámara** (abajo a la derecha) saca una foto o elige **varias** de la galería (hasta 6). El teléfono las achica a 1600 px y las sube, y se mandan juntas con la próxima transmisión. **ENVIAR** las manda sin hablar y **✕** las quita.
 - En la terminal se escribe lo dictado más la ruta de la foto (`~/.walkie-code/uploads/…`), y Claude Code la abre desde ahí. La primera vez puede pedir permiso para leer esa carpeta; para que no pregunte, permití `Read(~/.walkie-code/uploads/**)` en tu configuración de Claude Code. Las fotos se borran a los 7 días.
 
 ### Tele (Chromecast)

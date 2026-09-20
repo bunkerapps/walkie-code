@@ -76,3 +76,11 @@ test('sin texto usa el mensaje por defecto y escapa espacios de la ruta', () => 
   assert.equal(promptWithImage('', '/a.png'), `${DEFAULT_IMAGE_TEXT} /a.png`);
   assert.equal(promptWithImage(null, '/Users/Mi Mac/x.png'), `${DEFAULT_IMAGE_TEXT} /Users/Mi\\ Mac/x.png`);
 });
+
+test('con varias fotos, las rutas van todas al final', async () => {
+  const { promptWithImages } = await import('../lib/images.js');
+  assert.equal(promptWithImages('mirá esto', ['/a/uno.jpg', '/a/dos con espacio.jpg']),
+    'mirá esto /a/uno.jpg /a/dos\\ con\\ espacio.jpg');
+  assert.equal(promptWithImages('', ['/a/uno.jpg']), 'Mirá esta imagen /a/uno.jpg');
+  assert.equal(promptWithImages('', ['/a/uno.jpg', '/a/dos.jpg']), 'Mirá estas imágenes /a/uno.jpg /a/dos.jpg');
+});

@@ -86,7 +86,7 @@ function setState(next) {
 
 function renderHint() {
   const hint = state === 'tx' ? 'SOLTÁ PARA ENVIAR' : 'MANTENÉ PARA HABLAR';
-  $('ptt-hint').textContent = photo ? `${hint} + FOTO` : hint;
+  $('ptt-hint').textContent = photos.length ? `${hint} + ${photos.length > 1 ? `${photos.length} FOTOS` : 'FOTO'}` : hint;
 }
 
 // Cada canal tiene su propio historial en pantalla: al cambiar de canal se ve solo lo de ese canal
@@ -589,12 +589,12 @@ function startMeter() {
 
 async function send(blob) {
   setState('processing');
-  // Si hay una foto cargada, viaja con esta transmisión (se espera a que termine de subir).
-  const sent = photo;
-  const imageId = sent ? await sent.ready.catch(() => null) : null;
-  if (sent && !imageId) return fail('LA FOTO NO SE SUBIÓ. NO SE ENVIÓ NADA');
+  // Las fotos cargadas viajan con esta transmisión (se espera a que terminen de subir).
+  const sent = photos;
+  const ids = sent.length ? (await Promise.all(sent.map((p) => p.ready.catch(() => null)))).filter(Boolean) : [];
+  if (sent.length && ids.length !== sent.length) return fail('ALGUNA FOTO NO SE SUBIÓ. NO SE ENVIÓ NADA');
   try {
-    const headers = { 'Content-Type': blob.type, ...(imageId && { 'X-Walkie-Image': imageId }) };
+    const headers = { 'Content-Type': blob.type, ...(ids.length && { 'X-Walkie-Image': ids.join(',') }) };
     await afterSend(await api('/api/talk', { method: 'POST', headers, body: blob }), sent);
   } catch {
     fail('SIN CONEXIÓN CON LA MAC');
@@ -604,14 +604,14 @@ async function send(blob) {
 async function afterSend(res, sent) {
   const body = await res.json().catch(() => ({}));
   // 410: la foto ya no está en la Mac; no tiene sentido dejarla cargada.
-  if (res.status === 410 && photo === sent) clearPhoto();
+  if (res.status === 410 && photos === sent) clearPhoto();
   if (!res.ok) {
     if (body.text) log('VOS', body.text, { muted: true });
     return fail((body.error || `ERROR ${res.status}`).toUpperCase());
   }
   if ('switched' in body) return tunedByVoice(body);
-  if (body.image && photo === sent) clearPhoto();
-  const text = body.image ? `📎 ${body.text}` : body.text;
+  if (body.image && photos === sent) clearPhoto();
+  const text = body.image ? `📎${body.image > 1 ? `×${body.image}` : ''} ${body.text}` : body.text;
   log('VOS', body.permission ? `${text} (permiso)` : text);
   setState('waiting');
 }
@@ -622,7 +622,9 @@ async function afterSend(res, sent) {
 const PHOTO_MAX_SIDE = 1600;
 const PHOTO_QUALITY = 0.82;
 const attachEl = $('attach');
-let photo = null; // { ready: Promise<id>, thumb: objectURL }
+// Se pueden elegir varias fotos de una: van juntas con lo que dictes.
+const MAX_PHOTOS = 6;
+let photos = []; // [{ ready: Promise<id>, thumb: objectURL }]
 
 async function shrinkPhoto(file) {
   const url = URL.createObjectURL(file);
@@ -660,60 +662,70 @@ async function uploadPhoto(blob) {
   return body.id;
 }
 
-function renderPhoto(label = 'FOTO LISTA', busy = false) {
-  radio.dataset.photo = photo ? 'on' : 'off';
-  attachEl.hidden = !photo;
+function renderPhoto(label, busy = false) {
+  const cuantas = photos.length;
+  radio.dataset.photo = cuantas ? 'on' : 'off';
+  attachEl.hidden = !cuantas;
   attachEl.classList.toggle('busy', busy);
-  $('attach-label').textContent = label;
+  $('attach-label').textContent = label || (cuantas > 1 ? `${cuantas} FOTOS LISTAS` : 'FOTO LISTA');
   $('attach-send').disabled = busy;
-  if (photo?.thumb) $('attach-thumb').src = photo.thumb;
+  const ultima = photos[photos.length - 1];
+  if (ultima?.thumb) $('attach-thumb').src = ultima.thumb;
   else $('attach-thumb').removeAttribute('src');
   renderHint();
 }
 
 function clearPhoto() {
-  if (photo?.thumb) URL.revokeObjectURL(photo.thumb);
-  photo = null;
+  for (const p of photos) if (p.thumb) URL.revokeObjectURL(p.thumb);
+  photos = [];
   renderPhoto();
 }
 
-// Se sube apenas se elige; el PTT (o ENVIAR SOLA) después solo manda el id.
-function attachPhoto(file) {
+// Se suben apenas se eligen; el PTT (o ENVIAR SOLAS) después solo manda los ids.
+function attachPhotos(files) {
   clearPhoto();
-  const current = { thumb: null };
-  photo = current;
-  renderPhoto('PREPARANDO…', true);
-  current.ready = (async () => {
-    const blob = await shrinkPhoto(file).catch(() => file);
-    if (photo !== current) throw new Error('descartada');
-    current.thumb = URL.createObjectURL(blob);
-    renderPhoto('SUBIENDO…', true);
-    const id = await uploadPhoto(blob);
-    if (photo === current) renderPhoto();
-    return id;
-  })();
-  current.ready.catch((err) => {
-    if (photo !== current) return;
-    clearPhoto();
-    fail(`FOTO: ${err.message.toUpperCase()}`);
-  });
+  const elegidas = [...files].slice(0, MAX_PHOTOS);
+  if (files.length > MAX_PHOTOS) log('', `SOLO ENTRAN ${MAX_PHOTOS} FOTOS`, { muted: true });
+  const tanda = [];
+  for (const file of elegidas) {
+    const current = { thumb: null };
+    tanda.push(current);
+    photos.push(current);
+    current.ready = (async () => {
+      const blob = await shrinkPhoto(file).catch(() => file);
+      if (!photos.includes(current)) throw new Error('descartada');
+      current.thumb = URL.createObjectURL(blob);
+      const listas = photos.filter((p) => p.thumb).length;
+      renderPhoto(`SUBIENDO… ${listas}/${photos.length}`, true);
+      const id = await uploadPhoto(blob);
+      current.id = id;
+      if (photos.includes(current) && photos.every((p) => p.id)) renderPhoto();
+      return id;
+    })();
+    current.ready.catch((err) => {
+      if (!photos.includes(current)) return;
+      clearPhoto();
+      fail(`FOTO: ${err.message.toUpperCase()}`);
+    });
+  }
+  renderPhoto(elegidas.length > 1 ? `PREPARANDO ${elegidas.length} FOTOS…` : 'PREPARANDO…', true);
 }
 
 // La foto sola, sin dictar nada: el servidor le pone el texto por defecto.
 async function sendPhotoAlone() {
-  if (!photo || ['arming', 'tx', 'processing'].includes(state)) return;
+  if (!photos.length || ['arming', 'tx', 'processing'].includes(state)) return;
   unlockAudio();
   stopPlayback();
   sfx.click();
-  const sent = photo;
+  const sent = photos;
   setState('processing');
-  const image = await sent.ready.catch(() => null);
-  if (!image) return state === 'processing' && setState('idle');
+  const images = (await Promise.all(sent.map((p) => p.ready.catch(() => null)))).filter(Boolean);
+  if (!images.length) return state === 'processing' && setState('idle');
   try {
     await afterSend(await api('/api/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image }),
+      body: JSON.stringify({ images }),
     }), sent);
   } catch {
     fail('SIN CONEXIÓN CON LA MAC');
@@ -725,9 +737,9 @@ $('photo-key').addEventListener('click', () => {
   $('photo-input').click();
 });
 $('photo-input').addEventListener('change', (e) => {
-  const [file] = e.target.files;
+  const files = [...e.target.files];
   e.target.value = '';
-  if (file) attachPhoto(file);
+  if (files.length) attachPhotos(files);
 });
 $('attach-send').addEventListener('click', sendPhotoAlone);
 $('attach-remove').addEventListener('click', () => {
