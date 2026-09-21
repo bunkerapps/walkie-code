@@ -4,6 +4,29 @@ Acá queda anotado todo lo que va cambiando en Walkie-Code. El proyecto usa [ver
 
 [Read in English](CHANGELOG.md)
 
+## [1.6.0] — 2026-09-21
+
+### Agregado
+
+- **Candado con Face ID.** El enlace deja entrar al servidor, pero para escribirle a la terminal hace falta además la cara (o la huella, o el código del teléfono). La verificación la hace la Mac —firma, desafío de un solo uso y contador de la credencial—, escrita con `node:crypto`, sin librerías. La llave dura medio día y vive solo en ese teléfono; los hooks, que corren en la propia Mac, nunca la piden.
+- **Cambiar el token.** Desde la Mac, con `npm run token`: el enlace viejo deja de servir en el acto y se imprime el nuevo. Desde el teléfono solo se puede con el candado puesto, para que nadie que levante el teléfono pueda dejar afuera al dueño.
+- **Sabe si estás frente a la Mac.** Con el tiempo sin tocar el teclado y el estado de la pantalla, el hook le cuenta a Claude si el usuario está usando la Mac, cerca o lejos, para que sepa si mostrar algo en pantalla o contarlo hablado. Si el teclado se mueve justo mientras se dicta por el walkie, se avisa que hay alguien más en la Mac.
+- **Aviso si tocan tu Mac.** Estando lejos, que alguien la despierte llega como notificación al teléfono, una vez cada diez minutos como mucho.
+- **Dial de canales.** Tocando el número de canal aparece la lista entera, con el sintonizado marcado, un aviso en los que tienen respuesta esperando y un buscador cuando hay muchos. Deslizar sigue igual.
+- **Cancelar lo que estás por mandar.** Manteniendo apretado, se arrastra el dedo a la izquierda: aparece el tacho, se suelta y lo grabado se descarta.
+
+### Cambiado
+
+- **Menos batería en el teléfono.** La pantalla ya no se fuerza encendida todo el tiempo: solo mientras se graba, mientras Claude trabaja y mientras habla. La lista de canales se consulta cada 30 segundos en vez de cada 10, y el límite de uso cada 5 minutos en vez de cada minuto.
+- La carpeta que se publica para la tele ya no sirve archivos ocultos, `node_modules` ni archivos con secretos (`.env`, claves, bases de datos).
+
+### Arreglado
+
+- El historial de la pantalla y los mensajes en espera de otros canales sobreviven a recargar la app: se guardan en el teléfono. Los de canales que se cerraron se descartan solos.
+- "Claude piensa" pasa a ser de cada canal: cambiando de canal ya no queda el cartel de un canal que no está trabajando.
+- El resumen de un canal ya no muestra la charla de otro. Se usa la transcripción que avisa el hook, se comprueba que sea de la misma carpeta y, con varios Claude Code abiertos en la misma, no se adivina.
+- Al abrir la app se pide igual el resumen del canal, sin repetir lo que ya está en pantalla.
+
 ## [1.5.0] — 2026-09-20
 
 ### Agregado
@@ -110,6 +133,7 @@ Primera versión oficial: un walkie-talkie para hablarle a Claude Code desde el 
 
   Ver [SECURITY.md](SECURITY.md).
 
+[1.6.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.6.0
 [1.5.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.5.0
 [1.4.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.4.0
 [1.3.0]: https://github.com/bunkerapps/walkie-code/releases/tag/v1.3.0

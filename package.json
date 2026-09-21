@@ -1,6 +1,6 @@
 {
   "name": "walkie-code",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Push-to-talk walkie-talkie for Claude Code: talk from your iPhone, hear the answers back",
   "license": "MIT",
   "author": "Diego Pacheco (BunkerApps)",
@@ -23,7 +23,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "token": "node scripts/token.js"
   },
   "engines": {
     "node": ">=20"

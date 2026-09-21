@@ -386,6 +386,26 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .ptt-label { font-weight: 800; font-size: 56px; letter-spacing: 0.1em; line-height: 0.9; }
 .ptt-hint { font-weight: 700; font-size: 13px; letter-spacing: 0.16em; opacity: 0.75; }
 
+/* Cancelar arrastrando el dedo a la izquierda, como en los mensajes de voz del teléfono. */
+.ptt-cancelar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: #2b0f06;
+}
+.ptt-cancelar svg { width: 46px; height: 46px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.ptt-cancelar b { font-weight: 800; font-size: 13px; letter-spacing: 0.14em; }
+.ptt.cancelando .ptt-label,
+.ptt.cancelando .ptt-hint { visibility: hidden; }
+.ptt.cancelando .ptt-cancelar { display: flex; }
+.ptt.cancelando .ptt-cap { background: linear-gradient(180deg, #ffd9c9, #f08a63); }
+
 .ptt.pressed .ptt-cap,
 [data-state="tx"] .ptt-cap {
   transform: translateY(7px);
@@ -504,6 +524,15 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
   box-shadow: 0 0 0 2px #3b4035, 0 20px 40px rgba(0,0,0,0.6), inset 0 3px 8px rgba(0,0,0,0.35);
 }
 .picker[hidden] { display: none; }
+
+/* El dial de canales: la lista completa, para cuando deslizar de a uno se queda corto. */
+.lcd-ch { font: inherit; color: inherit; background: var(--lcd-ink); color: var(--lcd); border: 0; padding: 2px 8px; border-radius: 3px; cursor: pointer; }
+.lcd-ch:active { opacity: 0.7; }
+.dial-fila { display: flex; align-items: baseline; gap: 10px; width: 100%; }
+.dial-num { font-weight: 800; letter-spacing: 0.06em; }
+.dial-nombre { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dial-msj { font-weight: 800; }
+.picker-list button.dial-actual { background: var(--lcd-ink); color: var(--lcd); }
 
 .picker-head {
   display: flex;
@@ -736,3 +765,29 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .key-icono { display: grid; place-items: center; }
 .key-icono .key-icon { width: 26px; height: 26px; }
 #cast-toggle { width: 100%; }
+
+
+/* ---------- Candado con Face ID ---------- */
+
+.ajustes-seguridad { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.ajustes-titulo { font-size: 11px; letter-spacing: 0.22em; opacity: 0.6; margin: 4px 0; }
+.ajustes-nota { font-size: 11px; line-height: 1.5; opacity: 0.75; margin: 2px 0 0; }
+
+.cerrojo {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(10, 12, 9, 0.92);
+}
+.cerrojo[hidden] { display: none; }
+.cerrojo-caja { width: 100%; max-width: 320px; text-align: center; color: var(--lcd); }
+.cerrojo-ico { width: 54px; height: 54px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; opacity: 0.9; }
+.cerrojo-titulo { margin: 14px 0 6px; font-weight: 800; letter-spacing: 0.18em; font-size: 15px; }
+.cerrojo-texto { margin: 0 0 18px; font-size: 13px; line-height: 1.5; opacity: 0.8; }

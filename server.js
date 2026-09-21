@@ -9,7 +9,7 @@
 //                                          y contesta si lo dictó el teléfono (estilo para voz)
 
 import http from 'node:http';
-import { timingSafeEqual, randomUUID } from 'node:crypto';
+import { randomBytes, timingSafeEqual, randomUUID } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile, mkdir, writeFile, rename } from 'node:fs/promises';
@@ -26,6 +26,9 @@ import { describePermission, permissionSpeech, canAlways } from './lib/permissio
 import { Preview, scanDevices, castSite, stopCast, newestPage } from './lib/cast.js';
 import { writeAndSubmit, pressKey, pressArrow, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { pideConfianza, elegirOpcion } from './lib/trust.js';
+import { leerPresencia, frasePresencia, despertaronLaMac } from './lib/presencia.js';
+import { Cerrojo, necesitaCara } from './lib/lock.js';
+import { nuevoDesafio, verificarRegistro, verificarDesbloqueo } from './lib/webauthn.js';
 import { listFolders, safeDir } from './lib/folders.js';
 import { slugify, starterPage, inLab, isLabProject } from './lib/projects.js';
 import { listVoices, openVoiceSettings, SYSTEM_VOICE } from './lib/voices.js';
@@ -98,7 +101,22 @@ function select(id) {
 // Solo se leen en voz alta las respuestas de estas, y solo en el teléfono que habló.
 // `sent` es lo último que se dictó ahí, para reconocerlo cuando Claude Code lo reciba.
 // Transcripción de Claude Code de cada terminal, según los hooks (para el resumen del canal).
-const transcripts = new Map(); // tty -> ruta del .jsonl
+const TRANSCRIPTS_FILE = path.join(HOME_DIR, 'transcripts.json');
+const transcripts = new Map( // tty -> ruta del .jsonl
+  (() => {
+    try {
+      return Object.entries(JSON.parse(readFileSync(TRANSCRIPTS_FILE, 'utf8'))).filter(([, f]) => isTranscriptPath(f));
+    } catch {
+      return [];
+    }
+  })(),
+);
+
+function guardarTranscripciones() {
+  try {
+    writeFileSync(TRANSCRIPTS_FILE, JSON.stringify(Object.fromEntries(transcripts)), { mode: 0o600 });
+  } catch {}
+}
 
 const pending = new PendingStore(path.join(HOME_DIR, 'pending.json')); // tty -> { project, clientId, permission, sent: { text, at } | null, since }
 
@@ -108,7 +126,24 @@ const turns = new Map(); // tty -> ms
 // si se sintoniza ese canal, "sí" o "no" contestan el menú.
 const asking = new Set();
 
+// Candado con Face ID: con el token se entra, pero para escribir en la terminal hace falta la cara.
+const cerrojo = new Cerrojo(path.join(HOME_DIR, 'lock.json'));
+
+// Desde la propia Mac (los hooks) no se pide nada: ahí ya se está sentado frente a la máquina.
+const esLocal = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+// El sitio para el que vale la credencial: el nombre con el que entró el teléfono.
+const sitioDe = (req) => {
+  const host = String(req.headers.host || 'localhost');
+  const rpId = host.replace(/:\d+$/, '');
+  const seguro = rpId.endsWith('.ts.net') || rpId.endsWith('.local');
+  return { rpId, origen: `${seguro ? 'https' : 'http'}://${host}` };
+};
+
 const channelsNow = () => listChannels(cfg.names || {}, cfg.channelNames || {});
+
+// Última vez que el teléfono mandó algo: mientras dicta, no puede estar tecleando en la Mac.
+let ultimoDictadoAt = 0;
+const presenciaAhora = () => leerPresencia({ dictandoHaceSeg: ultimoDictadoAt ? (Date.now() - ultimoDictadoAt) / 1000 : Infinity });
 
 // El canal elegido, la última vez que se lo vio: sirve para esperarlo mientras Claude Code se reinicia.
 let memoriaCanal = null;
@@ -319,10 +354,27 @@ async function handlePushSubscribe(req, res) {
 // cada vez que cambia un archivo de esa carpeta: sirve para ir desarrollando en vivo.
 
 const preview = new Preview({ port: cfg.castPort, log });
+
+// Para los mensajes: un archivo se nombra por su nombre y un servidor de desarrollo, por su dirección.
+const nombreDe = (file) => (/^https?:\/\//.test(file) ? file : path.basename(file));
 let casting = null; // { device, file, url, since }
 
 async function handleCast(req, res) {
-  const { path: wanted, device = cfg.castDevice } = await readJson(req);
+  const { path: wanted, url: servidor, watch: vigilar, project, device = cfg.castDevice } = await readJson(req);
+
+  // Proyectar un servidor de desarrollo vivo: se pasa por el espejo para tener control remoto.
+  if (servidor) {
+    if (!/^https?:\/\/[\w.-]+(:\d+)?(\/|$)/.test(String(servidor))) {
+      return json(res, 400, { error: 'Esa dirección no sirve para proyectar.' });
+    }
+    let carpeta = null;
+    if (vigilar) {
+      const { full } = await safeDir(cfg.projectsRoot, String(vigilar));
+      carpeta = full;
+    }
+    return castFile(res, String(servidor), device, project, carpeta);
+  }
+
   const { full } = await safeDir(cfg.projectsRoot, path.dirname(String(wanted || '')));
   const file = path.join(full, path.basename(String(wanted || '')));
   if (!existsSync(file)) return json(res, 404, { error: 'No encuentro ese archivo.' });
@@ -331,13 +383,13 @@ async function handleCast(req, res) {
 }
 
 // Publica la carpeta, la manda a la tele y avisa por voz.
-async function castFile(res, file, device, project) {
-  const url = await preview.start(file);
+async function castFile(res, file, device, project, vigilar = null) {
+  const url = await preview.start(file, { watch: vigilar });
   if (!url) return json(res, 500, { error: 'La Mac no tiene IP en la red local.' });
   await castSite(device, url);
   casting = { device, file, url, project: project || null, since: Date.now() };
-  log(`+ tele: ${path.basename(file)} en ${device}`);
-  const que = project ? `${project} está en la tele` : `${path.basename(file)} está en la tele`;
+  log(`+ tele: ${nombreDe(file)} en ${device}`);
+  const que = project ? `${project} está en la tele` : `${nombreDe(file)} está en la tele`;
   return json(res, 200, { ...casting, audio: await speak(`Listo, ${que}.`) });
 }
 
@@ -370,7 +422,7 @@ async function handleCastStop(res) {
   if (!casting) return json(res, 200, { ok: true });
   await stopCast(casting.device).catch(() => {});
   preview.stop();
-  log(`- tele: ${path.basename(casting.file)} fuera de ${casting.device}`);
+  log(`- tele: ${nombreDe(casting.file)} fuera de ${casting.device}`);
   casting = null;
   return json(res, 200, { ok: true });
 }
@@ -484,6 +536,7 @@ async function deliver(res, { found, text, images = [], clientId }) {
 
   // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
   // y tiene que encontrar el texto dictado (con la ruta de la foto, tal cual lo recibe Claude).
+  ultimoDictadoAt = Date.now();
   const sent = answer ? null : { text: prompt, at: Date.now() };
   // La pregunta de confianza no abre ningún turno de Claude: contestarla no deja nada esperando.
   // (Si no, la pantalla quedaba en "Claude piensa" para siempre, porque nunca llegaba el hook Stop.)
@@ -558,7 +611,13 @@ async function handleHook(req, res) {
   const body = await readJson(req);
   if (!body.tty) return json(res, 200, { ignored: true });
   body.transcript = isTranscriptPath(body.transcript) ? body.transcript : null;
-  if (body.transcript) transcripts.set(body.tty, body.transcript);
+  if (body.transcript && transcripts.get(body.tty) !== body.transcript) {
+    transcripts.set(body.tty, body.transcript);
+    guardarTranscripciones();
+  } else if (!body.transcript && !transcripts.has(body.tty)) {
+    // Sin transcripción no hay resumen posible para ese canal: queda anotado para poder verlo.
+    log(`? ${body.tty}: el hook ${body.event} llegó sin transcripción`);
+  }
   if (body.event === 'StopFailure') return json(res, 200, await handleFailure(body));
   // Claude Code recibió un prompt: se anota cuándo empezó el turno y se contesta rápido,
   // sin consultar a iTerm2, si lo dictó el teléfono (el hook lo está esperando).
@@ -571,6 +630,10 @@ async function handleHook(req, res) {
       waiting.sent = null; // se usa una sola vez
       pending.save();
       log(`~ ${waiting.project}: pide respuesta para escuchar`);
+      // Dónde está el usuario: sirve para que Claude sepa si mostrarle algo en pantalla tiene sentido.
+      const presencia = await presenciaAhora().catch(() => null);
+      if (presencia) log(`· ${waiting.project}: ${presencia.estado}`);
+      return json(res, 200, { dictated, presencia: presencia ? frasePresencia(presencia) : null });
     }
     return json(res, 200, { dictated });
   }
@@ -898,6 +961,59 @@ async function openClaudeIn(req, res, full, intro) {
   return json(res, 200, { ...channelsPayload({ ...found, active: target }), trust: asksTrust, permission, audio: await speak(speech) });
 }
 
+// ---------- Candado con Face ID ----------
+
+async function handleLockRegistro(req, res) {
+  if (cerrojo.activo && !esLocal(req) && !cerrojo.desbloqueado(req.headers['x-walkie-unlock'])) {
+    return json(res, 423, { error: 'Ya hay un candado puesto: desbloqueá primero.' });
+  }
+  const body = await readJson(req);
+  if (!cerrojo.usarDesafio(body.desafio)) return json(res, 400, { error: 'El desafío venció, probá de nuevo.' });
+  try {
+    const { rpId, origen } = sitioDe(req);
+    const credencial = verificarRegistro({ ...body, origen, rpId });
+    cerrojo.registrar(credencial);
+    const llave = cerrojo.abrirSesion();
+    log(`+ candado de Face ID activado (${rpId})`);
+    return json(res, 200, { ok: true, llave });
+  } catch (err) {
+    return json(res, 400, { error: err.message });
+  }
+}
+
+async function handleLockEntrar(req, res) {
+  if (!cerrojo.activo) return json(res, 200, { ok: true, llave: null });
+  const body = await readJson(req);
+  if (!cerrojo.usarDesafio(body.desafio)) return json(res, 400, { error: 'El desafío venció, probá de nuevo.' });
+  try {
+    const { rpId, origen } = sitioDe(req);
+    const { signCount } = await verificarDesbloqueo({ ...body, guardada: cerrojo.credencial, origen, rpId });
+    cerrojo.credencial.signCount = signCount;
+    const llave = cerrojo.abrirSesion();
+    log('· walkie desbloqueado con Face ID');
+    return json(res, 200, { ok: true, llave });
+  } catch (err) {
+    log(`! Face ID rechazado: ${err.message}`);
+    return json(res, 401, { error: err.message });
+  }
+}
+
+// El token se cambia por uno nuevo: el enlace viejo deja de servir en el acto.
+// Es la llave de la casa: desde la Mac siempre se puede; desde el teléfono, solo si hay candado puesto
+// (si no, a cualquiera que te levante el teléfono le alcanzaría con tocar un botón para dejarte afuera).
+async function handleRotarToken(req, res) {
+  if (!esLocal(req) && !cerrojo.activo) {
+    return json(res, 403, { error: 'Cambiá el token desde la Mac, o activá primero el Face ID.' });
+  }
+  const token = randomBytes(16).toString('hex');
+  cfg.token = token;
+  saveConfig({ token });
+  cerrojo.cerrarTodo();
+  const { origen } = sitioDe(req);
+  log('· token rotado: los enlaces viejos ya no sirven');
+  return json(res, 200, { token, url: `${origen}/?t=${token}` });
+}
+
 // ---------- Voz de las respuestas ----------
 
 const RATE_LIMITS = [120, 300];
@@ -981,13 +1097,32 @@ async function handleName(req, res) {
 }
 
 // Lo último que pasó en un canal (aunque se haya escrito desde la Mac). Con ?speak=1, también en audio.
+// Sin aviso del hook, la transcripción se adivina por la carpeta: la más nueva que haya ahí. Con varios
+// Claude Code abiertos en la misma carpeta (pasa con ~/Development) esa sería la del canal más activo,
+// así que en ese caso no se adivina nada y se espera a que el canal hable una vez.
+async function adivinarTranscripcion(channel, channels) {
+  if (!channel.cwd) return null;
+  if (channels.filter((c) => c.cwd === channel.cwd).length > 1) return null;
+  const file = await newestTranscript(channel.cwd);
+  return file && ![...transcripts.values()].includes(file) ? file : null;
+}
+
 async function handleRecap(res, url) {
   const found = await resolveChannels();
   const channel = found.channels.find((c) => c.id === url.searchParams.get('id')) || found.active;
   if (!channel) return json(res, 404, { error: 'No hay ningún canal.' });
 
-  const file = transcripts.get(channel.tty) || (channel.cwd && (await newestTranscript(channel.cwd)));
+  const file = transcripts.get(channel.tty) || (await adivinarTranscripcion(channel, found.channels));
   const recap = file ? await recapOf(file).catch(() => null) : null;
+  // La transcripción tiene que ser de la misma carpeta que el canal. Si no, es de otra sesión (los ttys
+  // se reciclan) y estaríamos mostrando una charla ajena: mejor nada.
+  if (recap?.cwd && channel.cwd && recap.cwd !== channel.cwd) {
+    if (transcripts.get(channel.tty) === file) {
+      transcripts.delete(channel.tty);
+      guardarTranscripciones();
+    }
+    return json(res, 200, { id: channel.id, project: channel.project, empty: true });
+  }
   if (!recap?.prompt && !recap?.reply) return json(res, 200, { id: channel.id, project: channel.project, empty: true });
 
   const payload = {
@@ -1054,11 +1189,32 @@ const server = http.createServer(async (req, res) => {
     // Sin token: el relay no lo tiene, y solo revela si la Mac está despierta.
     if (route === 'GET /api/awake') return json(res, 200, { awake: await fullyAwake() });
     if (!authorized(req, url)) return json(res, 401, { error: 'Token inválido.' });
+    if (cerrojo.activo && necesitaCara({ route, local: esLocal(req) })
+        && !cerrojo.desbloqueado(req.headers['x-walkie-unlock'] || url.searchParams.get('u'))) {
+      return json(res, 423, { error: 'Desbloqueá el walkie con Face ID.', locked: true });
+    }
     declareUserActivity();
     // Cualquier pedido del teléfono (salvo el aviso de que se ocultó) prueba que la app está a la vista.
     if (route !== 'POST /api/presence') presence.touch(req.headers['x-walkie-client']);
 
     if (route === 'GET /api/events') return openEvents(req, res, url);
+    if (route === 'GET /api/lock') {
+      const llave = req.headers['x-walkie-unlock'];
+      return json(res, 200, { activo: cerrojo.activo, desbloqueado: !cerrojo.activo || cerrojo.desbloqueado(llave) });
+    }
+    if (route === 'POST /api/lock/desafio') {
+      const { rpId } = sitioDe(req);
+      return json(res, 200, { desafio: cerrojo.nuevoDesafio(nuevoDesafio()), rpId, id: cerrojo.credencial?.credencial || null });
+    }
+    if (route === 'POST /api/lock/registro') return await handleLockRegistro(req, res);
+    if (route === 'POST /api/lock/entrar') return await handleLockEntrar(req, res);
+    if (route === 'POST /api/lock/olvidar') {
+      cerrojo.olvidar();
+      log('- candado de Face ID quitado');
+      return json(res, 200, { ok: true });
+    }
+    if (route === 'POST /api/token/rotar') return await handleRotarToken(req, res);
+    if (route === 'GET /api/presencia') return json(res, 200, await presenciaAhora());
     if (route === 'GET /api/usage') {
       const usage = await readFile(path.join(HOME_DIR, 'usage.json'), 'utf8').then(JSON.parse).catch(() => null);
       return json(res, 200, { usage });
@@ -1129,8 +1285,36 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// ---------- Vigilancia de la Mac ----------
+//
+// Estando el usuario lejos, que alguien mueva el mouse o toque el teclado es algo que quiere saber.
+// Se mira cada medio minuto y se avisa una sola vez cada diez, para no volverse molesto.
+
+const VIGILANCIA_MS = 30 * 1000;
+let presenciaPrevia = null;
+let ultimoAvisoMac = 0;
+let vigilante = null;
+
+async function vigilarLaMac() {
+  if (cfg.avisarSiTocanLaMac === false) return;
+  const actual = await presenciaAhora().catch(() => null);
+  if (!actual) return;
+  if (despertaronLaMac({ previo: presenciaPrevia, actual, ultimoAviso: ultimoAvisoMac })) {
+    ultimoAvisoMac = Date.now();
+    const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    const texto = actual.estado === 'otro-en-la-mac'
+      ? `Alguien está usando tu Mac (${hora}) y no sos vos: estabas hablando por el walkie.`
+      : `Alguien está usando tu Mac (${hora}).`;
+    log(`! ${texto}`);
+    notifyPush(null, { title: 'TU MAC', body: texto, tag: 'walkie-code-mac', url: '/' });
+    broadcast('notify', { text: texto.toUpperCase(), audio: await speak(texto), kind: 'mac' });
+  }
+  presenciaPrevia = actual.estado;
+}
+
 async function shutdown() {
   shuttingDown = true;
+  clearInterval(vigilante);
   preview.stop();
   if (highlighted) await unhighlight(highlighted.tty);
   whisper?.kill();
@@ -1141,6 +1325,8 @@ process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
 startWhisper();
+vigilante = setInterval(() => vigilarLaMac().catch(() => {}), VIGILANCIA_MS);
+vigilante.unref?.();
 cleanupImages(cfg.uploadsDir).catch(() => {});
 await waitForWhisper();
 // Solo escucha en localhost: al teléfono le llega por `tailscale serve`, con HTTPS.

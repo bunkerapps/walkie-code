@@ -51,10 +51,36 @@ function readToken() {
 }
 const token = readToken();
 
+const LLAVE_KEY = 'walkie-unlock';
+let llaveDesbloqueo = (() => {
+  try {
+    return localStorage.getItem(LLAVE_KEY) || '';
+  } catch {
+    return '';
+  }
+})();
+
+function guardarLlave(llave) {
+  llaveDesbloqueo = llave || '';
+  try {
+    if (llave) localStorage.setItem(LLAVE_KEY, llave);
+    else localStorage.removeItem(LLAVE_KEY);
+  } catch {}
+}
+
 function api(path, options = {}) {
   return fetch(path, {
     ...options,
-    headers: { 'X-Walkie-Token': token, 'X-Walkie-Client': clientId, ...options.headers },
+    headers: {
+      'X-Walkie-Token': token,
+      'X-Walkie-Client': clientId,
+      ...(llaveDesbloqueo && { 'X-Walkie-Unlock': llaveDesbloqueo }),
+      ...options.headers,
+    },
+  }).then((res) => {
+    // 423: hay candado y esta sesión no pasó por Face ID.
+    if (res.status === 423) mostrarCerrojo();
+    return res;
   });
 }
 
@@ -88,8 +114,23 @@ function setSpinner(on) {
   spinnerTimer = setInterval(tick, 120);
 }
 
+// Qué canales están esperando respuesta de Claude. Antes "CLAUDE PIENSA" era del walkie entero, así
+// que al cambiar de canal seguía en pantalla aunque en ese canal no hubiera nada en curso.
+const enEspera = new Set();
+
+// Pone la pantalla como corresponda al canal que quedó a la vista.
+function estadoDelCanal() {
+  if (state === 'tx' || state === 'arming' || state === 'processing' || state === 'rx') return;
+  setState(enEspera.has(activeId) ? 'waiting' : 'idle');
+}
+
+// Estados en los que conviene que la pantalla siga viva: grabando, esperando a Claude o escuchando.
+const ESTADOS_DESPIERTOS = new Set(['arming', 'tx', 'processing', 'waiting', 'rx']);
+
 function setState(next) {
   if (next !== state) setSpinner(next === 'waiting');
+  if (ESTADOS_DESPIERTOS.has(next)) requestWakeLock();
+  else releaseWakeLock();
   if (next !== state && (next === 'idle' || next === 'waiting')) setTimeout(flushNotices, 600);
   state = next;
   radio.dataset.state = next;
@@ -105,8 +146,46 @@ function renderHint() {
 // Cada canal tiene su propio historial en pantalla: al cambiar de canal se ve solo lo de ese canal
 // (antes era uno solo y lo del canal nuevo quedaba mezclado debajo de lo del anterior).
 const MAX_LOG = 40;
-const logs = new Map(); // id de canal -> [{ who, text, muted }]
+const MAX_CANALES_GUARDADOS = 12;
+const LOGS_GUARDADOS = 'walkie-logs';
+
+// El historial en pantalla se guarda en el teléfono: recargar la app (o volver desde una notificación)
+// ya no lo borra. Solo vive en este teléfono; si el navegador no deja guardar, la app funciona igual.
+function leerLogs() {
+  try {
+    const crudo = JSON.parse(localStorage.getItem(LOGS_GUARDADOS) || '{}');
+    return new Map(
+      Object.entries(crudo)
+        .filter(([, lista]) => Array.isArray(lista))
+        .map(([id, lista]) => [id, lista.slice(-MAX_LOG)]),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+const logs = leerLogs(); // id de canal -> [{ who, text, muted }]
 const logKey = (channel) => channel || activeId || '-';
+
+let guardarPendiente = 0;
+function guardarLogsYa() {
+  clearTimeout(guardarPendiente);
+  guardarPendiente = 0;
+  try {
+    // Solo los canales más recientes: el espacio del teléfono no es infinito.
+    const recortado = [...logs.entries()].slice(-MAX_CANALES_GUARDADOS);
+    localStorage.setItem(LOGS_GUARDADOS, JSON.stringify(Object.fromEntries(recortado)));
+  } catch {}
+}
+
+function guardarLogs() {
+  clearTimeout(guardarPendiente);
+  guardarPendiente = setTimeout(guardarLogsYa, 400);
+}
+
+// Al recargar con la perilla o al irse a otra app, se guarda sin esperar: si no, lo último se perdía.
+addEventListener('pagehide', guardarLogsYa);
+addEventListener('visibilitychange', () => document.hidden && guardarLogsYa());
 
 function logLine({ who, text, muted }) {
   const p = document.createElement('p');
@@ -129,6 +208,7 @@ function log(who, text, { muted = false, channel } = {}) {
   list.push(entry);
   while (list.length > MAX_LOG) list.shift();
   logs.set(key, list);
+  guardarLogs();
   if (key !== logKey()) return;
   const logEl = $('log');
   logEl.append(logLine(entry));
@@ -173,22 +253,29 @@ function renderChannel(direction) {
 }
 
 let announcedId = null;
+// La primera vuelta después de abrir o recargar la app: ahí conviene pedir el resumen del canal
+// aunque haya historial guardado, porque puede haber quedado a mitad de camino.
+let reciénAbierta = true;
 
 function applyChannels(payload) {
   channels = payload.channels || [];
   activeId = payload.active?.id || null;
   renderChannel();
+  renderInbox();
   // Cada vez que cambia el canal (deslizando o porque cambió la terminal activa en la Mac)
   // se muestra de qué se trata esa sesión.
   if (payload.active && payload.active.id !== announcedId) {
     announcedId = payload.active.id;
+    estadoDelCanal();
     renderLog();
     takeFromInbox(payload.active.id);
-    // El título y el resumen, solo la primera vez que se ve el canal: al volver ya está su historial.
-    if (!logs.get(payload.active.id)?.length) {
-      if (payload.active.title) log(`CH${String(payload.active.number).padStart(2, '0')}`, payload.active.title, { muted: true });
-      showRecap(payload.active.id);
+    // El título, solo la primera vez que se ve el canal: al volver ya está su historial.
+    const sinHistorial = !logs.get(payload.active.id)?.length;
+    if (sinHistorial && payload.active.title) {
+      log(`CH${String(payload.active.number).padStart(2, '0')}`, payload.active.title, { muted: true });
     }
+    if (sinHistorial || reciénAbierta) showRecap(payload.active.id);
+    reciénAbierta = false;
   }
 }
 
@@ -202,10 +289,17 @@ async function fetchRecap(id, speak = false) {
 async function showRecap(id) {
   const recap = await fetchRecap(id).catch(() => null);
   if (!recap || recap.empty) return;
+  // Si eso ya está en el historial (porque se vivió en la app), no se repite.
+  const yaEstá = (texto) => (logs.get(id) || []).some((e) => e.text === texto);
   // Va al historial de ese canal aunque, mientras llegaba, se haya cambiado a otro.
-  if (recap.prompt) log('ÚLTIMO · VOS', recap.prompt, { muted: true, channel: id });
-  if (recap.working) log('CLAUDE', 'TODAVÍA ESTÁ TRABAJANDO…', { muted: true, channel: id });
-  else if (recap.reply) log('CLAUDE', recap.reply, { muted: true, channel: id });
+  if (recap.prompt && !yaEstá(recap.prompt)) log('ÚLTIMO · VOS', recap.prompt, { muted: true, channel: id });
+  if (!recap.working && enEspera.delete(id) && id === activeId) estadoDelCanal();
+  if (recap.working) {
+    enEspera.add(id);
+    if (id === activeId) estadoDelCanal();
+    log('CLAUDE', 'TODAVÍA ESTÁ TRABAJANDO…', { muted: true, channel: id });
+  }
+  else if (recap.reply && !yaEstá(recap.reply)) log('CLAUDE', recap.reply, { muted: true, channel: id });
   if (id !== activeId) return;
   setNowPlaying(recap.working ? 'Todavía está trabajando…' : recap.reply || '');
 }
@@ -237,6 +331,7 @@ async function selectChannel(id, direction) {
   const to = channels.findIndex((c) => c.id === id);
   activeId = id;
   renderChannel(direction ?? (to < from ? -1 : 1));
+  estadoDelCanal();
   renderLog();
   renderInbox();
   sfx.click();
@@ -509,7 +604,6 @@ function silentWav() {
 let unlocked = false;
 function unlockAudio() {
   audioCtx();
-  requestWakeLock();
   if (unlocked) return;
   unlocked = true;
   player.dataset.rx = '';
@@ -556,10 +650,33 @@ async function startTx() {
   startMeter();
 }
 
+// Arrastrar el dedo a la izquierda mientras se habla descarta lo grabado, como en los mensajes de voz.
+const CANCELAR_PX = 70;
+let cancelando = false;
+
+function marcarCancelacion(activo) {
+  if (activo === cancelando) return;
+  cancelando = activo;
+  ptt.classList.toggle('cancelando', activo);
+  if (activo) sfx.click();
+}
+
 function endTx() {
   if (!pressing) return;
   pressing = false;
+  const descartar = cancelando;
+  marcarCancelacion(false);
   if (state !== 'tx') return;
+
+  if (descartar) {
+    recorder.onstop = () => {
+      releaseMic();
+      setState('idle');
+      log('', 'CANCELADO, NO SE MANDÓ NADA', { muted: true });
+    };
+    recorder.stop();
+    return;
+  }
 
   const duration = performance.now() - txStartedAt;
   recorder.onstop = () => {
@@ -626,6 +743,7 @@ async function afterSend(res, sent) {
   if (body.image && photos === sent) clearPhoto();
   const text = body.image ? `📎${body.image > 1 ? `×${body.image}` : ''} ${body.text}` : body.text;
   log('VOS', body.permission ? `${text} (permiso)` : text);
+  if (!body.trust) enEspera.add(activeId);
   // Contestar la pregunta de confianza no abre un turno de Claude: no hay respuesta que esperar.
   if (body.trust) {
     setState('idle');
@@ -786,12 +904,23 @@ function tunedByVoice(body) {
 
 // ---------- Entrada: dedo o barra espaciadora ----------
 
+let pttDesdeX = 0;
+
 ptt.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   ptt.setPointerCapture(e.pointerId);
   ptt.classList.add('pressed');
+  pttDesdeX = e.clientX;
+  marcarCancelacion(false);
   startTx();
 });
+
+// Mientras se habla, el dedo hacia la izquierda arma la cancelación; volviendo a la derecha se deshace.
+ptt.addEventListener('pointermove', (e) => {
+  if (!pressing) return;
+  marcarCancelacion(pttDesdeX - e.clientX > CANCELAR_PX);
+});
+
 for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
   ptt.addEventListener(type, () => {
     ptt.classList.remove('pressed');
@@ -1198,11 +1327,40 @@ function onPermissionDone(e) {
 // hace "pi-pi", queda esperando y la pantalla muestra "MSJ CH03"; se escucha al ir a ese canal.
 // Una del canal actual que llega mientras suena otra cosa espera su turno en vez de cortarla.
 
-const inbox = new Map(); // id de canal -> { audio, text, project, at }
+// Los mensajes en espera también se guardan en el teléfono: recargar la app ya no los pierde.
+// El audio vive en la Mac un rato; pasado ese tiempo no tiene sentido conservarlos.
+const INBOX_GUARDADO = 'walkie-inbox';
+const INBOX_TTL_MS = 2 * 60 * 60 * 1000;
+
+function leerInbox() {
+  try {
+    const crudo = JSON.parse(localStorage.getItem(INBOX_GUARDADO) || '{}');
+    const vivos = Object.entries(crudo).filter(([, m]) => m && Date.now() - (m.at || 0) < INBOX_TTL_MS);
+    return new Map(vivos);
+  } catch {
+    return new Map();
+  }
+}
+
+function guardarInbox() {
+  try {
+    localStorage.setItem(INBOX_GUARDADO, JSON.stringify(Object.fromEntries(inbox)));
+  } catch {}
+}
+
+const inbox = leerInbox(); // id de canal -> { audio, text, project, at }
 const playQueue = [];
 let queueTimer = 0;
 
 function renderInbox() {
+  // Un canal que se cerró mientras la app estaba cerrada ya no tiene dónde escucharse: se descarta.
+  if (channels.length) {
+    let sobra = false;
+    for (const id of [...inbox.keys()]) {
+      if (!channels.some((c) => c.id === id)) (inbox.delete(id), (sobra = true));
+    }
+    if (sobra) guardarInbox();
+  }
   const waiting = [...inbox.entries()].filter(([id]) => id !== activeId).sort((a, b) => a[1].at - b[1].at);
   const el = $('inbox');
   el.hidden = !waiting.length;
@@ -1223,6 +1381,7 @@ function enqueueAudio(audio) {
 function deliverAudio(channel, reply) {
   if (channel && channel !== activeId) {
     inbox.set(channel, { ...reply, at: Date.now() });
+    guardarInbox();
     sfx.waiting();
     renderInbox();
     return;
@@ -1235,6 +1394,7 @@ function deliverAudio(channel, reply) {
 function takeFromInbox(channel) {
   const waiting = inbox.get(channel);
   inbox.delete(channel);
+  guardarInbox();
   renderInbox();
   if (!waiting) return;
   lastClip = waiting.audio;
@@ -1248,6 +1408,229 @@ $('inbox').addEventListener('click', (e) => {
   const [first] = [...inbox.entries()].filter(([id]) => id !== activeId).sort((a, b) => a[1].at - b[1].at);
   if (first) selectChannel(first[0]);
 });
+
+// ---------- Candado con Face ID ----------
+//
+// El token deja entrar al servidor, pero para escribirle a la terminal hace falta además la cara.
+// La llave que devuelve la Mac vale medio día y se guarda solo en este teléfono.
+
+const aB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const deB64 = (txt) => {
+  const base = String(txt).replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(base + '='.repeat((4 - (base.length % 4)) % 4));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+};
+
+const hayFaceId = () => Boolean(window.PublicKeyCredential && navigator.credentials);
+
+function mostrarCerrojo(texto) {
+  if (texto) $('cerrojo-texto').textContent = texto;
+  $('cerrojo').hidden = false;
+}
+
+async function pedirDesafio() {
+  const res = await api('/api/lock/desafio', { method: 'POST' });
+  if (!res.ok) throw new Error('LA MAC NO RESPONDIÓ');
+  return res.json();
+}
+
+// Registrar la cara de este teléfono como llave del walkie.
+async function activarFaceId() {
+  if (!hayFaceId()) return fail('ESTE TELÉFONO NO TIENE FACE ID PARA LA WEB');
+  const { desafio, rpId } = await pedirDesafio();
+  const cred = await navigator.credentials.create({
+    publicKey: {
+      challenge: deB64(desafio),
+      rp: { id: rpId, name: 'Walkie-Code' },
+      user: { id: deB64(aB64(new TextEncoder().encode(clientId))), name: 'walkie', displayName: 'Walkie-Code' },
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+      authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'preferred' },
+      attestation: 'none',
+      timeout: 60000,
+    },
+  });
+  const res = await api('/api/lock/registro', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      desafio,
+      credencial: cred.id,
+      attestationObject: aB64(cred.response.attestationObject),
+      clientDataJSON: [...new Uint8Array(cred.response.clientDataJSON)],
+    }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error((body.error || 'NO SE PUDO ACTIVAR').toUpperCase());
+  guardarLlave(body.llave);
+  return true;
+}
+
+// Desbloquear: la Mac verifica la firma antes de dejar pasar.
+async function desbloquear() {
+  const { desafio, id } = await pedirDesafio();
+  const cred = await navigator.credentials.get({
+    publicKey: {
+      challenge: deB64(desafio),
+      rpId: location.hostname,
+      allowCredentials: id ? [{ type: 'public-key', id: deB64(id) }] : [],
+      userVerification: 'required',
+      timeout: 60000,
+    },
+  });
+  const res = await api('/api/lock/entrar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      desafio,
+      credencial: cred.id,
+      authenticatorData: aB64(cred.response.authenticatorData),
+      clientDataJSON: [...new Uint8Array(cred.response.clientDataJSON)],
+      signature: aB64(cred.response.signature),
+    }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error((body.error || 'NO SE PUDO DESBLOQUEAR').toUpperCase());
+  guardarLlave(body.llave);
+  return true;
+}
+
+$('cerrojo-abrir').addEventListener('click', async () => {
+  const boton = $('cerrojo-abrir');
+  boton.disabled = true;
+  boton.textContent = '… ESPERANDO TU CARA';
+  try {
+    await desbloquear();
+    $('cerrojo').hidden = true;
+    log('', 'WALKIE DESBLOQUEADO', { muted: true });
+    refreshChannels();
+  } catch (err) {
+    $('cerrojo-texto').textContent = (err.message || 'NO SE PUDO').toUpperCase();
+  } finally {
+    boton.disabled = false;
+    boton.textContent = '▶ DESBLOQUEAR';
+  }
+});
+
+// Estado del candado, para el panel de ajustes.
+let candadoActivo = false;
+
+async function refrescarSeguridad() {
+  try {
+    const res = await api('/api/lock');
+    if (!res.ok) return;
+    const { activo, desbloqueado } = await res.json();
+    candadoActivo = activo;
+    $('lock-toggle').textContent = activo ? '🔓 QUITAR EL FACE ID' : '🔒 PEDIR FACE ID';
+    $('seguridad-nota').textContent = activo
+      ? 'Con candado puesto: el enlace solo no alcanza, hace falta tu cara.'
+      : 'Sin candado: cualquiera con el enlace puede hablarle a tu terminal.';
+    if (activo && !desbloqueado) mostrarCerrojo();
+  } catch {}
+}
+
+$('lock-toggle').addEventListener('click', async () => {
+  const boton = $('lock-toggle');
+  boton.disabled = true;
+  try {
+    if (candadoActivo) {
+      const res = await api('/api/lock/olvidar', { method: 'POST' });
+      if (!res.ok) throw new Error('NO SE PUDO QUITAR');
+      guardarLlave('');
+      log('', 'CANDADO QUITADO', { muted: true });
+    } else {
+      await activarFaceId();
+      log('', 'CANDADO ACTIVADO: AHORA PIDE TU CARA', { muted: true });
+    }
+    await refrescarSeguridad();
+  } catch (err) {
+    $('seguridad-nota').textContent = (err.message || 'NO SE PUDO').toUpperCase();
+  } finally {
+    boton.disabled = false;
+  }
+});
+
+// Cambiar el token: el enlace viejo deja de servir en el acto.
+$('token-rotar').addEventListener('click', async () => {
+  const boton = $('token-rotar');
+  boton.disabled = true;
+  try {
+    const res = await api('/api/token/rotar', { method: 'POST' });
+    const body = await res.json();
+    if (!res.ok) throw new Error((body.error || 'NO SE PUDO').toUpperCase());
+    try {
+      localStorage.setItem('walkie-code-token', body.token);
+    } catch {}
+    $('seguridad-nota').textContent = 'TOKEN CAMBIADO. LOS OTROS DISPOSITIVOS TIENEN QUE VOLVER A ENTRAR.';
+    // (Desde el teléfono solo se puede con el candado puesto; desde la Mac, con el comando de la terminal.)
+    log('', 'TOKEN CAMBIADO: ESTE TELÉFONO SIGUE ADENTRO', { muted: true });
+    setTimeout(() => location.replace(`${location.pathname}?t=${body.token}`), 1200);
+  } catch (err) {
+    $('seguridad-nota').textContent = (err.message || 'NO SE PUDO').toUpperCase();
+  } finally {
+    boton.disabled = false;
+  }
+});
+
+// ---------- Dial de canales ----------
+//
+// Deslizar sirve con pocos canales; con muchos, se toca el número y aparece la lista entera,
+// con el que está sintonizado marcado y un aviso en los que tienen respuesta esperando.
+
+const dial = $('dial');
+const dialFiltro = $('dial-filter');
+
+function renderDial() {
+  const filtro = dialFiltro.value.trim().toLowerCase();
+  const items = channels
+    .filter((c) => !filtro || `${c.number} ${c.project} ${c.folder}`.toLowerCase().includes(filtro))
+    .map((c, i) => {
+      const li = document.createElement('li');
+      const boton = document.createElement('button');
+      boton.type = 'button';
+      if (c.id === activeId) boton.className = 'dial-actual';
+      const fila = document.createElement('span');
+      fila.className = 'dial-fila';
+      const num = document.createElement('span');
+      num.className = 'dial-num';
+      num.textContent = `CH${String(c.number ?? i + 1).padStart(2, '0')}`;
+      const nombre = document.createElement('span');
+      nombre.className = 'dial-nombre';
+      nombre.textContent = (c.project || c.folder || '').toUpperCase();
+      fila.append(num, nombre);
+      if (inbox.has(c.id)) {
+        const msj = document.createElement('span');
+        msj.className = 'dial-msj';
+        msj.textContent = '● MSJ';
+        fila.append(msj);
+      }
+      boton.append(fila);
+      boton.addEventListener('click', () => {
+        cerrarDial();
+        if (c.id !== activeId) selectChannel(c.id);
+      });
+      li.append(boton);
+      return li;
+    });
+  $('dial-list').replaceChildren(...(items.length ? items : [listItem('empty', 'NO HAY CANALES')]));
+}
+
+function abrirDial() {
+  unlockAudio();
+  sfx.click();
+  dialFiltro.value = '';
+  renderDial();
+  dial.hidden = false;
+  // Con muchos canales conviene buscar; con pocos, el teclado molesta.
+  if (channels.length > 6) dialFiltro.focus();
+}
+
+function cerrarDial() {
+  dial.hidden = true;
+}
+
+$('ch').addEventListener('click', abrirDial);
+$('dial-close').addEventListener('click', cerrarDial);
+dialFiltro.addEventListener('input', renderDial);
 
 // ---------- Lector de mensajes completos ----------
 
@@ -1493,6 +1876,7 @@ async function openVoices() {
   voicesPanel.hidden = false;
   voiceState = null;
   voicesNote('');
+  refrescarSeguridad();
   $('voices-list').replaceChildren(listItem('empty', 'CARGANDO…'));
   try {
     await refreshVoices();
@@ -1726,7 +2110,7 @@ $('life').addEventListener('click', () => {
 });
 
 refreshUsage();
-setInterval(refreshUsage, 60_000);
+setInterval(refreshUsage, 5 * 60_000);
 document.addEventListener('visibilitychange', refreshUsage);
 
 // ---------- Canal con la Mac ----------
@@ -1750,6 +2134,7 @@ function onIncoming(label) {
     lastClip = audio;
     setNowPlaying(text);
     setTimeout(refreshUsage, 5000); // la barra de estado de Claude Code se actualiza al terminar el turno
+    if (channel) enEspera.delete(channel);
     if (state === 'waiting' || label === 'PERMISO') setState('idle');
     if (!replay) return deliverAudio(channel, { audio, text, project });
     clearTimeout(replayTimer);
@@ -1935,20 +2320,30 @@ function reportHidden() {
 }
 addEventListener('pagehide', reportHidden);
 
-// Mantiene la pantalla encendida: si el teléfono se bloquea, Safari corta la conexión.
+// Mantiene la pantalla encendida mientras hace falta: si el teléfono se bloquea, Safari corta la
+// conexión y se pierde la respuesta. En reposo se suelta, porque tener la pantalla prendida al pedo
+// es lo que más batería gasta; para lo que llega con la app cerrada están los avisos push.
 let wakeLock = null;
 async function requestWakeLock() {
   try {
-    if (!wakeLock && navigator.wakeLock) {
+    if (!wakeLock && navigator.wakeLock && !document.hidden) {
       wakeLock = await navigator.wakeLock.request('screen');
       wakeLock.addEventListener('release', () => (wakeLock = null));
     }
   } catch {}
 }
+
+function releaseWakeLock() {
+  try {
+    wakeLock?.release();
+  } catch {}
+  wakeLock = null;
+}
+
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) return reportHidden();
   audioCtx();
-  requestWakeLock();
+  if (ESTADOS_DESPIERTOS.has(state)) requestWakeLock();
   refreshChannels();
   clearNotifications();
   // En segundo plano iOS corta la conexión sin avisar: se reconecta pidiendo lo que llegó mientras tanto.
@@ -1961,8 +2356,9 @@ if (!token) {
 } else {
   setState('idle');
   loadSamples();
+  refrescarSeguridad();
   connect();
   refreshChannels();
   initPush().then(clearNotifications);
-  setInterval(refreshChannels, 10000);
+  setInterval(refreshChannels, 30000);
 }

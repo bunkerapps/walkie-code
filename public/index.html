@@ -43,7 +43,7 @@
 
     <section class="lcd" id="lcd" aria-live="polite" aria-label="Pantalla. Deslizá a los costados para cambiar de proyecto.">
       <div class="lcd-top">
-        <span class="lcd-ch" id="ch">CH--</span>
+        <button type="button" class="lcd-ch" id="ch" aria-label="Elegir canal">CH--</button>
         <span class="lcd-project"><span id="project">SIN CANAL</span></span>
         <span class="lcd-nav" id="ch-nav" aria-hidden="true"></span>
         <span class="lcd-signal" aria-label="Conexión"><i></i><i></i><i></i><i></i></span>
@@ -72,6 +72,11 @@
         <span class="ptt-cap">
           <span class="ptt-label">PTT</span>
           <span class="ptt-hint" id="ptt-hint">MANTENÉ PARA HABLAR</span>
+          <!-- Se ve al arrastrar el dedo hacia la izquierda mientras se habla: descarta lo grabado. -->
+          <span class="ptt-cancelar" id="ptt-cancelar" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13M10 11v6M14 11v6"/></svg>
+            <b>SOLTÁ PARA CANCELAR</b>
+          </span>
         </span>
       </span>
     </button>
@@ -93,6 +98,24 @@
       </svg>
       BUNKERAPPS
     </a>
+
+    <section class="cerrojo" id="cerrojo" hidden aria-label="Walkie bloqueado">
+      <div class="cerrojo-caja">
+        <svg class="cerrojo-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10V7a6 6 0 0 1 12 0v3M5 10h14v11H5z"/><circle cx="12" cy="15.5" r="1.6"/></svg>
+        <p class="cerrojo-titulo">WALKIE BLOQUEADO</p>
+        <p class="cerrojo-texto" id="cerrojo-texto">Para hablarle a la terminal hace falta tu cara.</p>
+        <button type="button" class="picker-open" id="cerrojo-abrir">▶ DESBLOQUEAR</button>
+      </div>
+    </section>
+
+    <section class="picker dial" id="dial" hidden aria-label="Elegir canal">
+      <header class="picker-head">
+        <span class="picker-path">SINTONIZAR CANAL</span>
+        <button type="button" class="picker-btn" id="dial-close" aria-label="Cerrar">✕</button>
+      </header>
+      <input class="picker-filter" id="dial-filter" type="search" placeholder="BUSCAR CANAL…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <ul class="picker-list" id="dial-list"></ul>
+    </section>
 
     <section class="picker" id="picker" hidden aria-label="Abrir Claude en una carpeta">
       <header class="picker-head">
@@ -149,6 +172,12 @@
       </div>
       <ul class="picker-list" id="voices-list"></ul>
       <p class="voices-note" id="voices-note" hidden></p>
+      <div class="ajustes-seguridad">
+        <p class="ajustes-titulo">SEGURIDAD</p>
+        <button type="button" class="picker-btn picker-nuevo" id="lock-toggle">🔒 PEDIR FACE ID</button>
+        <button type="button" class="picker-btn picker-nuevo" id="token-rotar">↻ CAMBIAR EL TOKEN</button>
+        <p class="ajustes-nota" id="seguridad-nota"></p>
+      </div>
       <button type="button" class="picker-open" id="voices-install">▶ INSTALAR MÁS VOCES</button>
     </section>
 

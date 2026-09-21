@@ -21,3 +21,12 @@ test('no deja salir de la carpeta publicada', () => {
   assert.equal(resolveRequest(root, '/../secreto.txt'), null);
   assert.equal(resolveRequest(root, '/%2e%2e/%2e%2e/etc/passwd'), null);
 });
+
+test('la carpeta proyectada no sirve archivos con secretos', () => {
+  const root = '/tmp/proyecto';
+  assert.ok(resolveRequest(root, '/index.html'));
+  assert.ok(resolveRequest(root, '/img/foto.jpg'));
+  for (const ruta of ['/.env', '/.git/config', '/node_modules/x/i.js', '/clave.pem', '/app.sqlite', '/sub/.env']) {
+    assert.equal(resolveRequest(root, ruta), null, ruta);
+  }
+});
