@@ -687,7 +687,7 @@ function endTx() {
       log('', 'MUY CORTO, MANTENÉ APRETADO', { muted: true });
       return;
     }
-    send(blob);
+    send(blob, duration);
   };
   recorder.stop();
   sfx.release();
@@ -717,14 +717,18 @@ function startMeter() {
   tick();
 }
 
-async function send(blob) {
+async function send(blob, duracionMs = 0) {
   setState('processing');
   // Las fotos cargadas viajan con esta transmisión (se espera a que terminen de subir).
   const sent = photos;
   const ids = sent.length ? (await Promise.all(sent.map((p) => p.ready.catch(() => null)))).filter(Boolean) : [];
   if (sent.length && ids.length !== sent.length) return fail('ALGUNA FOTO NO SE SUBIÓ. NO SE ENVIÓ NADA');
   try {
-    const headers = { 'Content-Type': blob.type, ...(ids.length && { 'X-Walkie-Image': ids.join(',') }) };
+    const headers = {
+      'Content-Type': blob.type,
+      ...(duracionMs > 0 && { 'X-Walkie-Tx-Ms': String(Math.round(duracionMs)) }),
+      ...(ids.length && { 'X-Walkie-Image': ids.join(',') }),
+    };
     await afterSend(await api('/api/talk', { method: 'POST', headers, body: blob }), sent);
   } catch (err) {
     fail(motivo(err, 'AL MANDAR LO QUE DIJISTE'));
@@ -1578,6 +1582,30 @@ $('token-rotar').addEventListener('click', async () => {
 
 const dial = $('dial');
 const dialFiltro = $('dial-filter');
+let cerrarArmado = null;
+let cerrarTimer = 0;
+
+// Cierra un canal desde el dial: sale de Claude Code con /exit y cierra la pestaña en la Mac.
+async function cerrarCanal(canal) {
+  try {
+    const res = await api('/api/close', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: canal.id }),
+    });
+    const body = await res.json();
+    applyChannels(body);
+    if (!res.ok) return fail((body.error || 'NO SE PUDO CERRAR').toUpperCase());
+    log('', `CANAL ${(canal.project || '').toUpperCase()} CERRADO`, { muted: true });
+    inbox.delete(canal.id);
+    guardarInbox();
+    renderDial();
+    if (body.audio) play(body.audio, { squelch: false, rx: false });
+  } catch (err) {
+    fail(motivo(err, 'AL CERRAR EL CANAL'));
+    renderDial();
+  }
+}
 
 function renderDial() {
   const filtro = dialFiltro.value.trim().toLowerCase();
@@ -1585,6 +1613,7 @@ function renderDial() {
     .filter((c) => !filtro || `${c.number} ${c.project} ${c.folder}`.toLowerCase().includes(filtro))
     .map((c, i) => {
       const li = document.createElement('li');
+      li.className = 'dial-li';
       const boton = document.createElement('button');
       boton.type = 'button';
       if (c.id === activeId) boton.className = 'dial-actual';
@@ -1608,7 +1637,35 @@ function renderDial() {
         cerrarDial();
         if (c.id !== activeId) selectChannel(c.id);
       });
-      li.append(boton);
+
+      // Cerrar el canal desde la misma fila. El primer toque pregunta; el segundo cierra.
+      const cerrar = document.createElement('button');
+      cerrar.type = 'button';
+      cerrar.className = 'dial-cerrar';
+      cerrar.textContent = '✕';
+      cerrar.setAttribute('aria-label', `Cerrar el canal ${c.project || ''}`);
+      cerrar.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        sfx.click();
+        if (cerrarArmado !== c.id) {
+          cerrarArmado = c.id;
+          cerrar.classList.add('confirm');
+          cerrar.textContent = '¿CERRAR?';
+          clearTimeout(cerrarTimer);
+          cerrarTimer = setTimeout(() => {
+            cerrarArmado = null;
+            renderDial();
+          }, 3000);
+          return;
+        }
+        clearTimeout(cerrarTimer);
+        cerrarArmado = null;
+        cerrar.textContent = '…';
+        cerrar.disabled = true;
+        await cerrarCanal(c);
+      });
+
+      li.append(boton, cerrar);
       return li;
     });
   $('dial-list').replaceChildren(...(items.length ? items : [listItem('empty', 'NO HAY CANALES')]));
@@ -1617,6 +1674,8 @@ function renderDial() {
 function abrirDial() {
   unlockAudio();
   sfx.click();
+  cerrarArmado = null;
+  clearTimeout(cerrarTimer);
   dialFiltro.value = '';
   renderDial();
   dial.hidden = false;

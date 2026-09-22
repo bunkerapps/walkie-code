@@ -63,16 +63,28 @@ test('no repite el aviso antes de diez minutos', () => {
 
 // ---------- Otra persona en la Mac ----------
 
-import { DICTANDO_RECIENTE } from '../lib/presencia.js';
+import { tecladoMientrasHablaba } from '../lib/presencia.js';
 
-test('si el usuario está dictando y el teclado se mueve, es otra persona', () => {
-  assert.equal(clasificar({ inactividadSeg: 5, dictandoHaceSeg: 10 }), 'otro-en-la-mac');
-  assert.match(frasePresencia({ estado: 'otro-en-la-mac' }), /no sea él/i);
+test('si el teclado se movió mientras hablaba, puede haber otra persona', () => {
+  assert.equal(clasificar({ inactividadSeg: 5, tecladoDuranteTx: true }), 'otro-en-la-mac');
+  assert.match(frasePresencia({ estado: 'otro-en-la-mac' }), /puede haber alguien/i);
 });
 
-test('dictar hace rato no cambia nada', () => {
-  assert.equal(clasificar({ inactividadSeg: 5, dictandoHaceSeg: DICTANDO_RECIENTE }), 'en-la-compu');
+test('haber hablado hace rato no acusa a nadie', () => {
   assert.equal(clasificar({ inactividadSeg: 5 }), 'en-la-compu');
+  assert.equal(clasificar({ inactividadSeg: 5, tecladoDuranteTx: false }), 'en-la-compu');
+});
+
+test('el teclado solo cuenta si se movió con el botón apretado', () => {
+  const ahora = 1_000_000;
+  const tx = { inicio: ahora - 8000, fin: ahora - 1000 };
+  // Última tecla hace 3 segundos: fue durante la grabación.
+  assert.equal(tecladoMientrasHablaba({ inactividadSeg: 3, tx, ahora }), true);
+  // Última tecla hace 30 segundos: fue antes de apretar el botón.
+  assert.equal(tecladoMientrasHablaba({ inactividadSeg: 30, tx, ahora }), false);
+  // Pasó un rato largo desde que soltó: ya no se saca conclusiones.
+  assert.equal(tecladoMientrasHablaba({ inactividadSeg: 3, tx, ahora: ahora + 60_000 }), false);
+  assert.equal(tecladoMientrasHablaba({ inactividadSeg: 3, tx: null, ahora }), false);
 });
 
 test('el aviso sale aunque el usuario no figurara lejos, si hay otro en la Mac', () => {

@@ -26,7 +26,7 @@ import { describePermission, permissionSpeech, canAlways } from './lib/permissio
 import { Preview, scanDevices, castSite, stopCast, newestPage } from './lib/cast.js';
 import { writeAndSubmit, pressKey, pressArrow, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { pideConfianza, elegirOpcion } from './lib/trust.js';
-import { leerPresencia, frasePresencia, despertaronLaMac } from './lib/presencia.js';
+import { leerPresencia, frasePresencia, despertaronLaMac, tecladoMientrasHablaba } from './lib/presencia.js';
 import { Cerrojo, necesitaCara } from './lib/lock.js';
 import { nuevoDesafio, verificarRegistro, verificarDesbloqueo } from './lib/webauthn.js';
 import { listFolders, safeDir } from './lib/folders.js';
@@ -141,9 +141,15 @@ const sitioDe = (req) => {
 
 const channelsNow = () => listChannels(cfg.names || {}, cfg.channelNames || {});
 
-// Última vez que el teléfono mandó algo: mientras dicta, no puede estar tecleando en la Mac.
-let ultimoDictadoAt = 0;
-const presenciaAhora = () => leerPresencia({ dictandoHaceSeg: ultimoDictadoAt ? (Date.now() - ultimoDictadoAt) / 1000 : Infinity });
+// Cuándo estuvo apretado el botón de hablar la última vez. Si el teclado se movió en ese rato,
+// hay alguien más en la Mac: el dueño tenía el dedo en el teléfono.
+let ultimaTx = null; // { inicio, fin }
+
+async function presenciaAhora() {
+  const base = await leerPresencia();
+  const tecladoDuranteTx = tecladoMientrasHablaba({ inactividadSeg: base.inactividadSeg, tx: ultimaTx });
+  return tecladoDuranteTx ? await leerPresencia({ tecladoDuranteTx: true }) : base;
+}
 
 // El canal elegido, la última vez que se lo vio: sirve para esperarlo mientras Claude Code se reinicia.
 let memoriaCanal = null;
@@ -536,7 +542,6 @@ async function deliver(res, { found, text, images = [], clientId }) {
 
   // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
   // y tiene que encontrar el texto dictado (con la ruta de la foto, tal cual lo recibe Claude).
-  ultimoDictadoAt = Date.now();
   const sent = answer ? null : { text: prompt, at: Date.now() };
   // La pregunta de confianza no abre ningún turno de Claude: contestarla no deja nada esperando.
   // (Si no, la pantalla quedaba en "Claude piensa" para siempre, porque nunca llegaba el hook Stop.)
@@ -567,6 +572,12 @@ async function deliver(res, { found, text, images = [], clientId }) {
 async function handleTalk(req, res) {
   const clientId = req.headers['x-walkie-client'] || null;
   const images = uploadedImages(req.headers['x-walkie-image']);
+  // Cuánto estuvo apretado el botón: si el teclado se movió en ese rato, no fue el que hablaba.
+  const duracion = Number(req.headers['x-walkie-tx-ms']);
+  if (Number.isFinite(duracion) && duracion > 0) {
+    const fin = Date.now();
+    ultimaTx = { inicio: fin - Math.min(duracion, 5 * 60_000), fin };
+  }
   const audio = await readBody(req);
   if (audio.length < 1000 && !images.length) return json(res, 422, { error: 'No llegó audio.' });
 
@@ -1302,9 +1313,10 @@ async function vigilarLaMac() {
   if (despertaronLaMac({ previo: presenciaPrevia, actual, ultimoAviso: ultimoAvisoMac })) {
     ultimoAvisoMac = Date.now();
     const hora = new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    // Sin un sensor de proximidad no hay forma de saber quién la tocó: el aviso lo dice así.
     const texto = actual.estado === 'otro-en-la-mac'
-      ? `Alguien está usando tu Mac (${hora}) y no sos vos: estabas hablando por el walkie.`
-      : `Alguien está usando tu Mac (${hora}).`;
+      ? `Tocaron tu Mac (${hora}) justo mientras hablabas por el walkie.`
+      : `Tu Mac se despertó (${hora}). Si fuiste vos, ignorá esto.`;
     log(`! ${texto}`);
     notifyPush(null, { title: 'TU MAC', body: texto, tag: 'walkie-code-mac', url: '/' });
     broadcast('notify', { text: texto.toUpperCase(), audio: await speak(texto), kind: 'mac' });

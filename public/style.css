@@ -534,6 +534,27 @@ button { font: inherit; color: inherit; border: 0; background: none; cursor: poi
 .dial-msj { font-weight: 800; }
 .picker-list button.dial-actual { background: var(--lcd-ink); color: var(--lcd); }
 
+/* La ✕ de cada fila cierra ese canal: el primer toque pregunta, el segundo cierra. */
+.picker-list li.dial-li { display: flex; align-items: stretch; gap: 6px; }
+.picker-list li > button:first-child { flex: 1 1 auto; min-width: 0; width: auto; }
+.picker-list li > .dial-cerrar {
+  flex: 0 0 auto;
+  width: 64px;
+  min-width: 64px;
+  padding: 0 10px;
+  border: 1px solid var(--lcd-ink);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--lcd-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.dial-cerrar.confirm { background: var(--lcd-ink); color: var(--lcd); }
+.dial-cerrar:disabled { opacity: 0.4; }
+
 .picker-head {
   display: flex;
   align-items: center;
