@@ -23,7 +23,8 @@ import { recapOf, newestTranscript, readTail, isTranscriptPath } from './lib/tra
 import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
 import { reconectar, ordenar } from './lib/channels.js';
 import { describePermission, permissionSpeech, canAlways } from './lib/permissions.js';
-import { Preview, scanDevices, castSite, stopCast, newestPage } from './lib/cast.js';
+import { Preview, scanDevices, castSite, stopCast, newestPage, ordenTeclado, localAddress } from './lib/cast.js';
+import { TeleVideo, videoDisponible } from './lib/stream.js';
 import { writeAndSubmit, pressKey, pressArrow, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { pideConfianza, elegirOpcion } from './lib/trust.js';
 import { leerPresencia, frasePresencia, despertaronLaMac, tecladoMientrasHablaba } from './lib/presencia.js';
@@ -360,13 +361,14 @@ async function handlePushSubscribe(req, res) {
 // cada vez que cambia un archivo de esa carpeta: sirve para ir desarrollando en vivo.
 
 const preview = new Preview({ port: cfg.castPort, log });
+const teleVideo = new TeleVideo({ port: cfg.castVideoPort, perfil: path.join(HOME_DIR, 'chrome-tele'), log });
 
 // Para los mensajes: un archivo se nombra por su nombre y un servidor de desarrollo, por su dirección.
 const nombreDe = (file) => (/^https?:\/\//.test(file) ? file : path.basename(file));
 let casting = null; // { device, file, url, since }
 
 async function handleCast(req, res) {
-  const { path: wanted, url: servidor, watch: vigilar, project, device = cfg.castDevice } = await readJson(req);
+  const { path: wanted, url: servidor, watch: vigilar, project, device = cfg.castDevice, modo } = await readJson(req);
 
   // Proyectar un servidor de desarrollo vivo: se pasa por el espejo para tener control remoto.
   if (servidor) {
@@ -378,22 +380,44 @@ async function handleCast(req, res) {
       const { full } = await safeDir(cfg.projectsRoot, String(vigilar));
       carpeta = full;
     }
-    return castFile(res, String(servidor), device, project, carpeta);
+    return castFile(res, String(servidor), device, project, carpeta, modo);
   }
 
   const { full } = await safeDir(cfg.projectsRoot, path.dirname(String(wanted || '')));
   const file = path.join(full, path.basename(String(wanted || '')));
   if (!existsSync(file)) return json(res, 404, { error: 'No encuentro ese archivo.' });
 
-  return castFile(res, file, device);
+  return castFile(res, file, device, null, null, modo);
 }
 
 // Publica la carpeta, la manda a la tele y avisa por voz.
-async function castFile(res, file, device, project, vigilar = null) {
-  const url = await preview.start(file, { watch: vigilar });
-  if (!url) return json(res, 500, { error: 'La Mac no tiene IP en la red local.' });
-  await castSite(device, url);
-  casting = { device, file, url, project: project || null, since: Date.now() };
+async function castFile(res, file, device, project, vigilar = null, modoPedido = null) {
+  const ip = localAddress();
+  if (!ip) return json(res, 500, { error: 'La Mac no tiene IP en la red local.' });
+  const modo = (modoPedido || cfg.castModo) === 'espejo' || !videoDisponible() ? 'espejo' : 'video';
+  let url;
+  if (modo === 'video') {
+    // La página queda solo en la Mac (la abre el Chrome invisible); a la red sale únicamente el video.
+    await preview.start(file, { watch: vigilar, host: '127.0.0.1' });
+    url = await teleVideo.start(preview.localUrl, { host: ip });
+  } else {
+    teleVideo.stop();
+    url = await preview.start(file, { watch: vigilar });
+  }
+  // Si la tele ya muestra una página, el Chromecast ignora la nueva (o catt falla): primero se corta
+  // lo que haya, y si igual falla se prueba una vez más.
+  const cortarYEsperar = async () => {
+    await stopCast(device).catch(() => {});
+    await new Promise((ok) => setTimeout(ok, 2000));
+  };
+  await cortarYEsperar();
+  try {
+    await castSite(device, url);
+  } catch {
+    await cortarYEsperar();
+    await castSite(device, url);
+  }
+  casting = { device, file, url, modo, project: project || null, since: Date.now() };
   log(`+ tele: ${nombreDe(file)} en ${device}`);
   const que = project ? `${project} está en la tele` : `${nombreDe(file)} está en la tele`;
   return json(res, 200, { ...casting, audio: await speak(`Listo, ${que}.`) });
@@ -425,6 +449,7 @@ async function handleCastDevice(req, res) {
 async function handleCastStop(res) {
   // Siempre deja de publicar, aunque no haya quedado registrada la proyección.
   preview.stop();
+  teleVideo.stop();
   if (!casting) return json(res, 200, { ok: true });
   await stopCast(casting.device).catch(() => {});
   preview.stop();
@@ -1245,11 +1270,16 @@ const server = http.createServer(async (req, res) => {
     // Control remoto de la página que está en la tele: puntero, clics y scroll.
     if (route === 'POST /api/cast/control') {
       if (!casting) return json(res, 409, { error: 'No hay nada en la tele.' });
-      const { tipo, dx = 0, dy = 0, accion } = await readJson(req);
+      const pedido = await readJson(req);
+      const { tipo, dx = 0, dy = 0, accion } = pedido;
       const cuerpo = { tipo, dx: Number(dx) || 0, dy: Number(dy) || 0 };
-      if (tipo === 'mover') preview.comando(cuerpo);
-      else if (['apretar', 'soltar'].includes(tipo)) preview.comando({ tipo });
-      else if (tipo === 'scroll' && ['up', 'down', 'top', 'bottom'].includes(accion)) preview.comando({ tipo, accion });
+      const teclado = ordenTeclado(pedido);
+      // En modo video las órdenes van al Chrome invisible como eventos reales; en espejo, a la página.
+      const destino = casting.modo === 'video' ? teleVideo : preview;
+      if (teclado) await destino.comando(teclado);
+      else if (tipo === 'mover') await destino.comando(cuerpo);
+      else if (['apretar', 'soltar'].includes(tipo)) await destino.comando({ tipo });
+      else if (tipo === 'scroll' && ['up', 'down', 'top', 'bottom'].includes(accion)) await destino.comando({ tipo, accion });
       else return json(res, 400, { error: 'Orden inválida.' });
       return json(res, 200, { ok: true });
     }
@@ -1328,6 +1358,7 @@ async function shutdown() {
   shuttingDown = true;
   clearInterval(vigilante);
   preview.stop();
+  teleVideo.stop();
   if (highlighted) await unhighlight(highlighted.tty);
   whisper?.kill();
   server.close();

@@ -4,6 +4,19 @@ All notable changes to Walkie-Code are documented here. The project follows [Sem
 
 [Leer en español](CHANGELOG.es.md)
 
+## [Unreleased]
+
+### Added
+
+- **Video mode for the TV.** Pages and apps no longer run in the Chromecast's own browser, which is old and has no keyboard: they run in an invisible Chrome on the Mac and only the video reaches the TV (H.264, around 30 fps with a third of a second of delay). Clicks, scrolling and typing are real browser events, so dropdowns (drawn inside the page so they show up in the video), text fields and scrollable boxes all work. The page itself stays on the Mac: only the video goes out to the home network. Works with the Mac locked. The previous mode is still available with `castModo: "espejo"` in the config or `modo: "espejo"` when casting.
+- **Keyboard for the TV.** The TV panel has a keyboard key: whatever you type (or dictate) on the phone shows up in the focused field on the TV, with keys to change field, move the cursor, delete, escape and enter.
+
+### Fixed
+
+- Casting failed, or the new page never showed up, if the TV was still showing something else: it now always stops the previous cast first.
+- In mirror mode, a click from the walkie didn't focus the page's fields.
+- `confirm` dialogs on a cast page are cancelled instead of freezing it, with a notice on screen.
+
 ## [1.6.0] — 2026-09-21
 
 ### Added

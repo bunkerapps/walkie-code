@@ -1838,6 +1838,62 @@ for (const tipo of ['pointerup', 'pointercancel', 'lostpointercapture']) {
   });
 }
 
+// Teclado: se escribe con el teclado del teléfono (dictado incluido) y cada cambio viaja a la tele
+// como "borrar tantos caracteres y escribir esto", así el autocorrector también se refleja allá.
+const tecladoCampo = $('teclado-campo');
+let tecladoPrevio = '';
+
+$('teclado-toggle').addEventListener('click', () => {
+  sfx.click();
+  const abrir = $('teclado').hidden;
+  $('teclado').hidden = !abrir;
+  $('teclado-toggle').setAttribute('aria-expanded', String(abrir));
+  if (abrir) tecladoCampo.focus();
+});
+
+async function mandarCambio(antes, ahora) {
+  let comun = 0;
+  while (comun < antes.length && comun < ahora.length && antes[comun] === ahora[comun]) comun++;
+  for (let i = comun; i < antes.length; i++) await controlTele({ tipo: 'tecla', tecla: 'Backspace' });
+  const nuevo = ahora.slice(comun);
+  for (let i = 0; i < nuevo.length; i += 500) await controlTele({ tipo: 'texto', texto: nuevo.slice(i, i + 500) });
+}
+
+// Los cambios se mandan en orden: si se tipea rápido, cada uno espera al anterior.
+let tecladoCola = Promise.resolve();
+tecladoCampo.addEventListener('input', () => {
+  const antes = tecladoPrevio;
+  const ahora = tecladoCampo.value;
+  tecladoPrevio = ahora;
+  tecladoCola = tecladoCola.then(() => mandarCambio(antes, ahora));
+});
+
+// Enter manda Enter a la tele y vacía el campo, listo para lo que sigue.
+tecladoCampo.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing) return;
+  e.preventDefault();
+  tecladoCampo.value = '';
+  tecladoPrevio = '';
+  tecladoCola = tecladoCola.then(() => controlTele({ tipo: 'tecla', tecla: 'Enter' }));
+});
+
+for (const boton of document.querySelectorAll('[data-tecla]')) {
+  boton.addEventListener('pointerdown', (e) => e.preventDefault()); // que el teclado del teléfono no se cierre
+  boton.addEventListener('click', () => {
+    sfx.click();
+    const tecla = boton.dataset.tecla;
+    // Lo tipeado ya está en la tele; al cambiar de campo o salir, se empieza de cero.
+    if (['Tab', 'ShiftTab', 'Escape', 'Enter'].includes(tecla)) {
+      tecladoCampo.value = '';
+      tecladoPrevio = '';
+    } else if (tecla === 'Backspace' && tecladoPrevio) {
+      tecladoPrevio = tecladoPrevio.slice(0, -1);
+      tecladoCampo.value = tecladoPrevio;
+    }
+    tecladoCola = tecladoCola.then(() => controlTele({ tipo: 'tecla', tecla }));
+  });
+}
+
 $('tele-key').addEventListener('click', openControl);
 $('cast-toggle').addEventListener('click', toggleCast);
 $('cast-device-next').addEventListener('click', nextCastDevice);

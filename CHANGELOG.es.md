@@ -4,6 +4,19 @@ Acá queda anotado todo lo que va cambiando en Walkie-Code. El proyecto usa [ver
 
 [Read in English](CHANGELOG.md)
 
+## [Sin publicar]
+
+### Agregado
+
+- **La tele en modo video.** Las páginas y apps ya no corren en el navegador del Chromecast, que es viejo y no tiene teclado: corren en un Chrome invisible en la Mac y a la tele llega solo el video (H.264, unos 30 cuadros por segundo y un tercio de segundo de retraso). Los clics, el scroll y el teclado son eventos reales, así que funcionan los desplegables (se dibujan dentro de la página para que salgan en el video), los campos de texto y las cajas con scroll propio. La página queda solo en la Mac: a la red de casa sale únicamente el video. Funciona con la Mac bloqueada. El modo de antes sigue disponible con `castModo: "espejo"` en la configuración o `modo: "espejo"` al proyectar.
+- **Teclado para la tele.** El panel de la tele tiene una tecla de teclado: lo que se escribe (o dicta) en el teléfono aparece en el campo enfocado de la tele, con teclas para cambiar de campo, mover el cursor, borrar, escape y enter.
+
+### Arreglado
+
+- Si la tele seguía mostrando otra cosa, proyectar fallaba o la página nueva no aparecía: ahora siempre se corta lo anterior antes de proyectar.
+- En modo espejo, un clic desde el walkie no enfocaba los campos de la página.
+- Los `confirm` de una página proyectada se cancelan en vez de colgarla, y se avisa en pantalla.
+
 ## [1.6.0] — 2026-09-21
 
 ### Agregado

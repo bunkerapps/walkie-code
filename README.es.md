@@ -100,7 +100,8 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 
 ### Tele (Chromecast)
 
-- La tecla de **transmisión** (abajo, la pantallita con ondas) abre el panel de la tele: elegir dispositivo, **PROYECTAR** la página más nueva del proyecto sintonizado (o **SACAR DE LA TELE**), un **trackpad** para mover un puntero y hacer clic en la página proyectada, y cuatro teclas para moverse por ella (principio, subir, bajar, final). En la tele no se puede tocar ni scrollear: por eso el control va desde el teléfono.
+- La tecla de **transmisión** (abajo, la pantallita con ondas) abre el panel de la tele: elegir dispositivo, **PROYECTAR** la página más nueva del proyecto sintonizado (o **SACAR DE LA TELE**), un **trackpad** para mover un puntero y hacer clic en la página proyectada, y cuatro teclas para moverse por ella (principio, subir, bajar, final). En la tele no se puede tocar ni scrollear: por eso el control va desde el teléfono. La tecla de teclado escribe en el campo enfocado de la tele.
+- Por defecto la página corre en un Chrome invisible en la Mac y a la tele llega solo el video (`castModo: "video"`, puerto `castVideoPort`, 8800 por defecto): así funcionan los desplegables, los campos de texto y el scroll de cualquier caja, y la página no sale de la Mac. Necesita Google Chrome y `ffmpeg`. Con `castModo: "espejo"` la página se abre directo en el navegador del Chromecast, como antes.
 
 - `node scripts/cast.js pagina.html` publica esa carpeta en la red local (puerto `castPort`, 8799 por defecto) y la abre en el Chromecast (`castDevice`, "Chromecast" por defecto). Mientras dura la proyección, cada cambio en la carpeta recarga la página en la tele: sirve para desarrollar en vivo.
 - `--devices` lista lo que hay en la red (el preferido va con un asterisco), `--device "Comedor"` usa otro, `--stop` la saca de la tele y deja de publicarla, y `--status` dice qué se está proyectando.

@@ -199,6 +199,20 @@
         <button type="button" class="picker-btn" id="scroll-up" aria-label="Subir">▲</button>
         <button type="button" class="picker-btn" id="scroll-down" aria-label="Bajar">▼</button>
         <button type="button" class="picker-btn" id="scroll-bottom" aria-label="Ir al final">⤓</button>
+        <button type="button" class="picker-btn" id="teclado-toggle" aria-label="Teclado" aria-expanded="false">⌨</button>
+      </div>
+      <div class="control-teclado" id="teclado" hidden>
+        <input type="text" id="teclado-campo" autocomplete="off" autocapitalize="off" spellcheck="false"
+          enterkeyhint="send" placeholder="ESCRIBÍ EN LA TELE" aria-label="Texto para la tele">
+        <div class="control-teclas">
+          <button type="button" class="picker-btn" data-tecla="ShiftTab" aria-label="Campo anterior">⇤</button>
+          <button type="button" class="picker-btn" data-tecla="Tab" aria-label="Campo siguiente">⇥</button>
+          <button type="button" class="picker-btn" data-tecla="ArrowLeft" aria-label="Cursor a la izquierda">◂</button>
+          <button type="button" class="picker-btn" data-tecla="ArrowRight" aria-label="Cursor a la derecha">▸</button>
+          <button type="button" class="picker-btn" data-tecla="Backspace" aria-label="Borrar">⌫</button>
+          <button type="button" class="picker-btn" data-tecla="Escape" aria-label="Escape">ESC</button>
+          <button type="button" class="picker-btn" data-tecla="Enter" aria-label="Enter">⏎</button>
+        </div>
       </div>
     </section>
 
