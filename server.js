@@ -74,6 +74,10 @@ let selectedId = (() => {
   }
 })();
 
+// Qué canal vive en cada terminal, recordado: si justo iTerm2 no contesta, la respuesta igual sale
+// con su id y el teléfono sabe a qué canal pertenece (si no, sonaba en el canal equivocado).
+const idPorTty = new Map();
+
 // El número de cada canal: el orden en que fueron apareciendo. También se guarda, así un reinicio
 // del servidor no les cambia el número a los canales que ya estaban abiertos.
 const ORDER_FILE = path.join(HOME_DIR, 'orden.json');
@@ -166,6 +170,7 @@ async function resolveChannels() {
     memoriaCanal = r.memoria;
     if (r.soltar) select(null);
   }
+  for (const c of channels) if (c.tty && c.id) idPorTty.set(c.tty, c.id);
   const antes = [...ordenCanales.keys()].join(',');
   channels = ordenar(channels, ordenCanales);
   if ([...ordenCanales.keys()].join(',') !== antes) guardarOrden();
@@ -316,7 +321,12 @@ async function transcribe(audio, mime, ext = mime.includes('mp4') || mime.includ
   return cleanTranscript(text);
 }
 
-const speak = async (text) => `/api/audio/${await synthesize(text, cfg)}`;
+// Cada canal puede tener su propia voz (por ejemplo, una distinta para el canal secretaria).
+// Se guarda por nombre de canal, que es lo que sobrevive a cerrar y volver a abrir la terminal.
+const vozDe = (proyecto) => (proyecto && cfg.channelVoices?.[proyecto]) || cfg.voice;
+
+const speak = async (text, proyecto) =>
+  `/api/audio/${await synthesize(text, { ...cfg, voice: vozDe(proyecto) })}`;
 
 // ---------- Avisos push (teléfono bloqueado) ----------
 
@@ -398,7 +408,8 @@ async function castFile(res, file, device, project, vigilar = null, modoPedido =
   let url;
   if (modo === 'video') {
     // La página queda solo en la Mac (la abre el Chrome invisible); a la red sale únicamente el video.
-    await preview.start(file, { watch: vigilar, host: '127.0.0.1' });
+    // El puntero y los clics los pone el Chrome invisible: el proxy solo avisa cuándo recargar.
+    await preview.start(file, { watch: vigilar, host: '127.0.0.1', soloRecarga: true });
     url = await teleVideo.start(preview.localUrl, { host: ip });
   } else {
     teleVideo.stop();
@@ -730,7 +741,7 @@ async function handleHook(req, res) {
   const from = active?.tty === body.tty ? '' : `Desde ${waiting.project}. `;
   // El id exacto del canal: el teléfono lo usa para saber si la respuesta es del canal en pantalla
   // (por nombre fallaba si se renombraba o si dos canales se llamaban parecido).
-  const channel = open.find((c) => c.tty === body.tty)?.id || null;
+  const channel = open.find((c) => c.tty === body.tty)?.id || idPorTty.get(body.tty) || null;
 
   if (body.event === 'Stop') {
     pending.delete(body.tty);
@@ -753,7 +764,7 @@ async function handleHook(req, res) {
     broadcast('notify', {
       channel,
       text: detail ? `${summary}: ${detail}` : body.text,
-      audio: await speak(speech),
+      audio: await speak(speech, waiting.project),
       project: waiting.project,
       to: waiting.clientId,
       permission: ask,
@@ -782,15 +793,26 @@ async function sendNotice(body, startedAt) {
     enabled: cfg.notices,
     afterSeconds: cfg.notifyAfterSeconds,
   });
-  if (!notice) return { ignored: true };
 
   const { channels } = await channelsNow().catch(() => ({ channels: [] }));
   const project = channels.find((c) => c.tty === body.tty)?.project || projectFromCwd(body.cwd, cfg.names);
-  if (notice.kind === 'permission') asking.add(body.tty);
 
+  // Aunque no amerite aviso (una respuesta corta en un canal al que nadie le habló desde el teléfono,
+  // por ejemplo cuando un agente le escribe a otro), lo que pasó queda escrito en la pantalla de ese
+  // canal. Antes había que apretar REPETIR para enterarse de lo que decía la consola.
+  if (body.event === 'Stop' && body.text) {
+    broadcast('eco', {
+      channel: channels.find((c) => c.tty === body.tty)?.id || idPorTty.get(body.tty) || null,
+      project,
+      text: body.text,
+    });
+  }
+
+  if (!notice) return { ignored: true };
+  if (notice.kind === 'permission') asking.add(body.tty);
   const speech = noticeSpeech(project, notice, body.tool);
   // Sin teléfonos conectados no se genera el audio: al reconectar, el aviso viejo solo se muestra.
-  const audio = clients.size ? await speak(speech) : null;
+  const audio = clients.size ? await speak(speech, project) : null;
   const duration = durationLabel(notice.seconds);
   const channel = channels.find((c) => c.tty === body.tty)?.id || null;
   broadcast('notice', { kind: notice.kind, text: body.text || speech, speech, project, channel, duration, audio });
@@ -876,7 +898,7 @@ async function handleFailure(body) {
   const reset = resetTime(limitMessage(tail));
   const speech = failureSpeech(body.error, project, reset);
 
-  const audio = clients.size ? await speak(speech) : null;
+  const audio = clients.size ? await speak(speech, project) : null;
   broadcast('notice', { kind: limit ? 'limit' : 'error', text: speech, speech, project, audio, reset, to: waiting?.clientId });
   notifyPush(limit ? null : waiting?.clientId, {
     title: limit ? 'CLAUDE · LÍMITE DE USO' : `CLAUDE · ${project}`,
@@ -1104,8 +1126,16 @@ const voiceOptions = async () => [...(await listVoices(cfg.language)), systemVoi
 
 const noticeSettings = () => ({ enabled: cfg.notices !== false, afterSeconds: clampSeconds(cfg.notifyAfterSeconds) });
 
-async function handleVoices(res) {
-  return json(res, 200, { voices: await voiceOptions(), current: cfg.voice, rate: cfg.rate, notices: noticeSettings() });
+async function handleVoices(res, url) {
+  const canal = url?.searchParams.get('canal') || null;
+  return json(res, 200, {
+    voices: await voiceOptions(),
+    current: cfg.voice,
+    rate: cfg.rate,
+    notices: noticeSettings(),
+    canal,
+    vozDelCanal: canal ? cfg.channelVoices?.[canal] || null : null,
+  });
 }
 
 // Prende o apaga los avisos de los otros canales y cambia el umbral. Se guarda en la configuración.
@@ -1121,9 +1151,20 @@ async function handleNotices(req, res) {
 
 // Cambia la voz o la velocidad, la guarda y devuelve una muestra para escucharla.
 async function handleVoice(req, res) {
-  const { voice, rate } = await readJson(req);
+  const { voice, rate, canal } = await readJson(req);
   const chosen = voice && (await voiceOptions()).find((v) => v.name === voice);
   if (voice && !chosen) return json(res, 404, { error: 'Esa voz no está instalada en la Mac.' });
+
+  // Con `canal`, la voz vale solo para ese canal; sin él, es la de todos.
+  if (canal) {
+    cfg.channelVoices = { ...(cfg.channelVoices || {}) };
+    if (chosen) cfg.channelVoices[canal] = chosen.name;
+    else delete cfg.channelVoices[canal];
+    saveConfig({ channelVoices: cfg.channelVoices });
+    log(`= voz de ${canal}: ${chosen ? chosen.name : 'la de siempre'}`);
+    const muestra = chosen ? `Hola, en ${canal} te voy a hablar así.` : `En ${canal} vuelvo a la voz de siempre.`;
+    return json(res, 200, { current: cfg.voice, rate: cfg.rate, canal, voz: chosen?.name || null, audio: await speak(muestra, canal) });
+  }
 
   if (chosen) cfg.voice = chosen.name;
   if (rate !== undefined) cfg.rate = Math.min(RATE_LIMITS[1], Math.max(RATE_LIMITS[0], Math.round(Number(rate)) || cfg.rate));
@@ -1211,7 +1252,7 @@ async function handleRecap(res, url) {
     reply: recap.working ? null : recap.reply?.text || null,
     working: recap.working,
   };
-  if (url.searchParams.get('speak')) payload.audio = await speak(recapSpeech(channel.project, recap));
+  if (url.searchParams.get('speak')) payload.audio = await speak(recapSpeech(channel.project, recap), channel.project);
   return json(res, 200, payload);
 }
 
@@ -1336,7 +1377,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (route === 'POST /api/send') return await handleSend(req, res);
     if (route === 'GET /api/folders') return await handleFolders(res, url);
-    if (route === 'GET /api/voices') return await handleVoices(res);
+    if (route === 'GET /api/voices') return await handleVoices(res, url);
     if (route === 'POST /api/voice') return await handleVoice(req, res);
     if (route === 'GET /api/notices') return json(res, 200, noticeSettings());
     if (route === 'POST /api/notices') return await handleNotices(req, res);
@@ -1399,7 +1440,9 @@ async function vigilarLaMac() {
       : `Tu Mac se despertó (${hora}). Si fuiste vos, ignorá esto.`;
     log(`! ${texto}`);
     notifyPush(null, { title: 'TU MAC', body: texto, tag: 'walkie-code-mac', url: '/' });
-    broadcast('notify', { text: texto.toUpperCase(), audio: await speak(texto), kind: 'mac' });
+    // Sin voz a propósito: este aviso puede llegar en cualquier momento y en cualquier lugar, y que el
+    // teléfono se ponga a hablar solo de la Mac puede ser incómodo. Queda escrito y como notificación.
+    broadcast('notify', { text: texto.toUpperCase(), kind: 'mac' });
   }
   presenciaPrevia = actual.estado;
 }

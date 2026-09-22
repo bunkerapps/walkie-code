@@ -1481,6 +1481,14 @@ function deliverAudio(channel, reply) {
     renderInbox();
     return;
   }
+  // Sin id de canal (la Mac no lo pudo resolver), el nombre del proyecto manda: si no es el que está
+  // en pantalla, no se reproduce. Antes, en la duda, sonaba acá y parecía que Claude cambiaba de tema.
+  const actual = channels.find((c) => c.id === activeId);
+  if (!channel && reply.project && actual && reply.project !== actual.project) {
+    sfx.waiting();
+    log('', `HAY UNA RESPUESTA DE ${reply.project.toUpperCase()}`, { muted: true });
+    return;
+  }
   lastClip = reply.audio;
   audioBusy() ? enqueueAudio(reply.audio) : play(reply.audio);
 }
@@ -2041,6 +2049,8 @@ function voiceButton(voice) {
 // La lista llega ordenada de mejor a peor: se corta en secciones por calidad.
 function renderVoices() {
   if (!voiceState) return;
+  // Con el alcance en "solo este canal", la marcada es la voz propia del canal (si tiene una).
+  voiceState.current = vozPara && voiceState.vozDelCanal ? voiceState.vozDelCanal : voiceState.current;
   $('rate-label').textContent = `VELOCIDAD ${voiceState.rate}`;
   const items = [];
   let section = null;
@@ -2057,13 +2067,48 @@ function renderVoices() {
 }
 
 // Trae la lista; si apareció una voz nueva, la avisa. Solo redibuja si algo cambió.
+// Ajustes en solapas: voz, sonidos, avisos y candado.
+for (const solapa of document.querySelectorAll('.solapa')) {
+  solapa.addEventListener('click', () => {
+    sfx.click();
+    const cual = solapa.dataset.solapa;
+    for (const otra of document.querySelectorAll('.solapa')) otra.classList.toggle('activa', otra === solapa);
+    for (const hoja of document.querySelectorAll('.hoja')) hoja.hidden = hoja.dataset.hoja !== cual;
+    if (cual === 'seguridad') refrescarSeguridad();
+  });
+}
+
+// A quién le cambia la voz lo que se elija en la lista: a todos, o a un canal en particular.
+// Se toca el botón y va pasando por los canales abiertos, así se puede configurar otro canal
+// sin tener que sintonizarlo.
+let vozPara = null; // null = todos los canales
+
+function renderAlcance() {
+  const boton = $('voz-para');
+  if (!boton) return;
+  if (vozPara && !channels.some((c) => c.project === vozPara)) vozPara = null;
+  boton.textContent = vozPara ? `VOZ PARA: ${vozPara.toUpperCase()}` : 'VOZ PARA: TODOS LOS CANALES';
+  boton.classList.toggle('activo', Boolean(vozPara));
+}
+
+$('voz-para').addEventListener('click', () => {
+  sfx.click();
+  const nombres = channels.map((c) => c.project);
+  const i = vozPara ? nombres.indexOf(vozPara) : -1;
+  vozPara = i + 1 < nombres.length ? nombres[i + 1] : null;
+  renderAlcance();
+  refreshVoices().catch(() => {});
+});
+
 async function refreshVoices() {
-  const res = await api('/api/voices');
+  const canal = vozPara;
+  const res = await api(`/api/voices${canal ? `?canal=${encodeURIComponent(canal)}` : ''}`);
   const next = await res.json();
   const before = voiceState ? new Set(voiceState.voices.map((v) => v.name)) : null;
   const fresh = before ? next.voices.filter((v) => !before.has(v.name)) : [];
   const changed = !voiceState || next.voices.length !== voiceState.voices.length || fresh.length || next.current !== voiceState.current;
   voiceState = next;
+  renderAlcance();
   if (changed) renderVoices();
   renderNotices();
   if (fresh.length) {
@@ -2098,14 +2143,16 @@ async function chooseVoice(change) {
   unlockAudio();
   sfx.click();
   try {
+    const canal = vozPara;
     const res = await api('/api/voice', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(change),
+      body: JSON.stringify({ ...change, ...(canal && { canal }) }),
     });
     const body = await res.json();
     if (!res.ok) return fail((body.error || 'NO SE PUDO CAMBIAR LA VOZ').toUpperCase());
-    Object.assign(voiceState, { current: body.current, rate: body.rate });
+    Object.assign(voiceState, { current: body.current, rate: body.rate, vozDelCanal: body.voz ?? voiceState.vozDelCanal });
+    if (canal) log('', `VOZ DE ${canal.toUpperCase()} GUARDADA`, { muted: true });
     renderVoices();
     play(body.audio, { squelch: false, rx: false });
   } catch (err) {
@@ -2348,6 +2395,17 @@ function onIncoming(label) {
   };
 }
 
+// Lo que respondió un canal al que no le hablamos desde el teléfono (por ejemplo, cuando un agente le
+// escribe a otro): no suena ni avisa, pero queda escrito en la pantalla de ese canal.
+function onEco(e) {
+  rememberEvent(e);
+  const { channel, project, text } = JSON.parse(e.data);
+  if (!text) return;
+  const destino = channel || channelOf(project);
+  log(project ? `EN ${project.toUpperCase()}` : 'EN OTRO CANAL', text, { muted: true, channel: destino });
+  if (destino && destino !== activeId) enEspera.delete(destino);
+}
+
 // ---------- Avisos de otros canales ----------
 //
 // Un canal al que no se le habló desde acá terminó una tarea larga o pide permiso.
@@ -2412,6 +2470,7 @@ function connect() {
   events.addEventListener('reply', onIncoming('CLAUDE'));
   events.addEventListener('notify', onIncoming('PERMISO'));
   events.addEventListener('notice', onNotice);
+  events.addEventListener('eco', onEco);
   events.addEventListener('permission-done', onPermissionDone);
   events.addEventListener('compartido', onCompartido);
   refreshCompartidos();

@@ -70,3 +70,12 @@ test('modo video: teclas, puntero y scroll se traducen a eventos de Chrome', asy
   assert.ok(ruedaDeScroll('down') > 0 && ruedaDeScroll('up') < 0);
   assert.ok(ruedaDeScroll('bottom') > ruedaDeScroll('down'));
 });
+
+test('en modo video solo se inyecta la recarga, no un segundo puntero', () => {
+  const html = '<html><body>hola</body></html>';
+  const conControl = withLiveReload(html);
+  const soloRecarga = withLiveReload(html, { soloRecarga: true });
+  assert.match(conControl, /data-walkie-cursor/, 'el modo directo dibuja el puntero');
+  assert.doesNotMatch(soloRecarga, /data-walkie-cursor/, 'el modo video no dibuja ninguno');
+  assert.match(soloRecarga, /__walkie-live/, 'pero sigue recargando sola');
+});

@@ -145,46 +145,63 @@
         <span class="picker-path">AJUSTES</span>
         <button type="button" class="picker-btn" id="voices-close" aria-label="Cerrar">✕</button>
       </header>
-      <div class="rate">
-        <span class="rate-label">AVISOS CON EL TELÉFONO BLOQUEADO</span>
-        <button type="button" class="picker-btn picker-toggle" id="push" data-push="off" aria-pressed="false" aria-label="Avisos con el teléfono bloqueado">NO</button>
+
+      <div class="solapas" role="tablist">
+        <button type="button" class="solapa activa" data-solapa="voz" role="tab">VOZ</button>
+        <button type="button" class="solapa" data-solapa="sonidos" role="tab">SONIDOS</button>
+        <button type="button" class="solapa" data-solapa="avisos" role="tab">AVISOS</button>
+        <button type="button" class="solapa" data-solapa="seguridad" role="tab">CANDADO</button>
       </div>
-      <div class="rate">
-        <button type="button" class="picker-btn" id="rate-down" aria-label="Más lento">−</button>
-        <span class="rate-label" id="rate-label">VELOCIDAD</span>
-        <button type="button" class="picker-btn" id="rate-up" aria-label="Más rápido">＋</button>
-      </div>
-      <div class="rate">
-        <button type="button" class="picker-btn" id="voice-vol-down" aria-label="Bajar el volumen de la voz">−</button>
-        <span class="rate-label">VOLUMEN DE VOZ</span>
-        <span class="fx-level" id="voice-vol-level"></span>
-        <button type="button" class="picker-btn" id="voice-vol-up" aria-label="Subir el volumen de la voz">＋</button>
-      </div>
-      <div class="rate">
-        <span class="rate-label">VOLUMEN DE EFECTOS</span>
-        <button type="button" class="picker-btn picker-toggle" id="fx-toggle" aria-expanded="false" aria-controls="fx">▸</button>
-      </div>
-      <div class="fx" id="fx" hidden></div>
-      <div class="notices" id="notices" hidden>
+
+      <div class="hoja" data-hoja="voz">
+        <button type="button" class="picker-btn voz-para" id="voz-para">VOZ PARA: TODOS LOS CANALES</button>
         <div class="rate">
-          <span class="rate-label">AVISOS DE OTROS CANALES</span>
-          <button type="button" class="picker-btn picker-toggle" id="notices-toggle" aria-pressed="true" aria-label="Avisos de otros canales">SÍ</button>
+          <button type="button" class="picker-btn" id="rate-down" aria-label="Más lento">−</button>
+          <span class="rate-label" id="rate-label">VELOCIDAD</span>
+          <button type="button" class="picker-btn" id="rate-up" aria-label="Más rápido">＋</button>
         </div>
-        <div class="rate" id="notices-delay">
-          <button type="button" class="picker-btn" id="notices-down" aria-label="Avisar antes">−</button>
-          <span class="rate-label" id="notices-label">SI TARDA +1 MIN</span>
-          <button type="button" class="picker-btn" id="notices-up" aria-label="Avisar después">＋</button>
+        <div class="rate">
+          <button type="button" class="picker-btn" id="voice-vol-down" aria-label="Bajar el volumen de la voz">−</button>
+          <span class="rate-label">VOLUMEN DE VOZ</span>
+          <span class="fx-level" id="voice-vol-level"></span>
+          <button type="button" class="picker-btn" id="voice-vol-up" aria-label="Subir el volumen de la voz">＋</button>
+        </div>
+        <ul class="picker-list" id="voices-list"></ul>
+        <p class="voices-note" id="voices-note" hidden></p>
+        <button type="button" class="picker-open" id="voices-install">▶ INSTALAR MÁS VOCES</button>
+      </div>
+
+      <div class="hoja" data-hoja="sonidos" hidden>
+        <div class="rate">
+          <span class="rate-label">VOLUMEN DE EFECTOS</span>
+          <button type="button" class="picker-btn picker-toggle" id="fx-toggle" aria-expanded="true" aria-controls="fx">▾</button>
+        </div>
+        <div class="fx" id="fx"></div>
+      </div>
+
+      <div class="hoja" data-hoja="avisos" hidden>
+        <div class="rate">
+          <span class="rate-label">AVISOS CON EL TELÉFONO BLOQUEADO</span>
+          <button type="button" class="picker-btn picker-toggle" id="push" data-push="off" aria-pressed="false" aria-label="Avisos con el teléfono bloqueado">NO</button>
+        </div>
+        <div class="notices" id="notices" hidden>
+          <div class="rate">
+            <span class="rate-label">AVISOS DE OTROS CANALES</span>
+            <button type="button" class="picker-btn picker-toggle" id="notices-toggle" aria-pressed="true" aria-label="Avisos de otros canales">SÍ</button>
+          </div>
+          <div class="rate" id="notices-delay">
+            <button type="button" class="picker-btn" id="notices-down" aria-label="Avisar antes">−</button>
+            <span class="rate-label" id="notices-label">SI TARDA +1 MIN</span>
+            <button type="button" class="picker-btn" id="notices-up" aria-label="Avisar después">＋</button>
+          </div>
         </div>
       </div>
-      <ul class="picker-list" id="voices-list"></ul>
-      <p class="voices-note" id="voices-note" hidden></p>
-      <div class="ajustes-seguridad">
-        <p class="ajustes-titulo">SEGURIDAD</p>
+
+      <div class="hoja" data-hoja="seguridad" hidden>
         <button type="button" class="picker-btn picker-nuevo" id="lock-toggle">🔒 PEDIR FACE ID</button>
         <button type="button" class="picker-btn picker-nuevo" id="token-rotar">↻ CAMBIAR EL TOKEN</button>
         <p class="ajustes-nota" id="seguridad-nota"></p>
       </div>
-      <button type="button" class="picker-open" id="voices-install">▶ INSTALAR MÁS VOCES</button>
     </section>
 
     <section class="picker" id="control" hidden aria-label="Transmitir a la tele">
