@@ -9,6 +9,7 @@ All notable changes to Walkie-Code are documented here. The project follows [Sem
 ### Added
 
 - **Video mode for the TV.** Pages and apps no longer run in the Chromecast's own browser, which is old and has no keyboard: they run in an invisible Chrome on the Mac and only the video reaches the TV (H.264, around 30 fps with a third of a second of delay). Clicks, scrolling and typing are real browser events, so dropdowns (drawn inside the page so they show up in the video), text fields and scrollable boxes all work. The page itself stays on the Mac: only the video goes out to the home network. Works with the Mac locked. The previous mode is still available with `castModo: "espejo"` in the config or `modo: "espejo"` when casting.
+- **WhatsApp voice notes.** A voice note shared from WhatsApp with the "Walkie Code" iOS shortcut is transcribed on the Mac and waits on the walkie with a 🎙, like a photo: hold PTT, say what to do with it and Claude gets both. With the app closed, a notification arrives. Uploading it doesn't need Face ID; sending it does.
 - **Keyboard for the TV.** The TV panel has a keyboard key: whatever you type (or dictate) on the phone shows up in the focused field on the TV, with keys to change field, move the cursor, delete, escape and enter.
 
 ### Fixed

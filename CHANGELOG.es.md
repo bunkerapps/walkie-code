@@ -9,6 +9,7 @@ Acá queda anotado todo lo que va cambiando en Walkie-Code. El proyecto usa [ver
 ### Agregado
 
 - **La tele en modo video.** Las páginas y apps ya no corren en el navegador del Chromecast, que es viejo y no tiene teclado: corren en un Chrome invisible en la Mac y a la tele llega solo el video (H.264, unos 30 cuadros por segundo y un tercio de segundo de retraso). Los clics, el scroll y el teclado son eventos reales, así que funcionan los desplegables (se dibujan dentro de la página para que salgan en el video), los campos de texto y las cajas con scroll propio. La página queda solo en la Mac: a la red de casa sale únicamente el video. Funciona con la Mac bloqueada. El modo de antes sigue disponible con `castModo: "espejo"` en la configuración o `modo: "espejo"` al proyectar.
+- **Audios de WhatsApp.** Un audio compartido desde WhatsApp con el atajo "Walkie Code" de iOS se transcribe en la Mac y queda cargado en el walkie con un 🎙, como una foto: se mantiene el PTT, se dicta qué hacer con él y a Claude le llegan las dos cosas. Con la app cerrada llega un aviso. Subirlo no pide Face ID; mandarlo sí.
 - **Teclado para la tele.** El panel de la tele tiene una tecla de teclado: lo que se escribe (o dicta) en el teléfono aparece en el campo enfocado de la tele, con teclas para cambiar de campo, mover el cursor, borrar, escape y enter.
 
 ### Arreglado

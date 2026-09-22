@@ -140,7 +140,11 @@ function setState(next) {
 
 function renderHint() {
   const hint = state === 'tx' ? 'SOLTÁ PARA ENVIAR' : 'MANTENÉ PARA HABLAR';
-  $('ptt-hint').textContent = photos.length ? `${hint} + ${photos.length > 1 ? `${photos.length} FOTOS` : 'FOTO'}` : hint;
+  const extras = [
+    compartidoActual() && 'AUDIO',
+    photos.length && (photos.length > 1 ? `${photos.length} FOTOS` : 'FOTO'),
+  ].filter(Boolean);
+  $('ptt-hint').textContent = [hint, ...extras].join(' + ');
 }
 
 // Cada canal tiene su propio historial en pantalla: al cambiar de canal se ve solo lo de ese canal
@@ -723,11 +727,14 @@ async function send(blob, duracionMs = 0) {
   const sent = photos;
   const ids = sent.length ? (await Promise.all(sent.map((p) => p.ready.catch(() => null)))).filter(Boolean) : [];
   if (sent.length && ids.length !== sent.length) return fail('ALGUNA FOTO NO SE SUBIÓ. NO SE ENVIÓ NADA');
+  // El audio compartido también viaja: lo dictado es qué hacer con él.
+  const compartido = compartidoActual();
   try {
     const headers = {
       'Content-Type': blob.type,
       ...(duracionMs > 0 && { 'X-Walkie-Tx-Ms': String(Math.round(duracionMs)) }),
       ...(ids.length && { 'X-Walkie-Image': ids.join(',') }),
+      ...(compartido && { 'X-Walkie-Compartido': compartido.id }),
     };
     await afterSend(await api('/api/talk', { method: 'POST', headers, body: blob }), sent);
   } catch (err) {
@@ -739,13 +746,16 @@ async function afterSend(res, sent) {
   const body = await res.json().catch(() => ({}));
   // 410: la foto ya no está en la Mac; no tiene sentido dejarla cargada.
   if (res.status === 410 && photos === sent) clearPhoto();
+  if (res.status === 410) refreshCompartidos();
   if (!res.ok) {
     if (body.text) log('VOS', body.text, { muted: true });
     return fail((body.error || `ERROR ${res.status}`).toUpperCase());
   }
   if ('switched' in body) return tunedByVoice(body);
   if (body.image && photos === sent) clearPhoto();
-  const text = body.image ? `📎${body.image > 1 ? `×${body.image}` : ''} ${body.text}` : body.text;
+  if (body.compartido) quitarCompartido(body.compartido);
+  let text = body.image ? `📎${body.image > 1 ? `×${body.image}` : ''} ${body.text}` : body.text;
+  if (body.compartido) text = `🎙 ${text || 'AUDIO REENVIADO'}`;
   log('VOS', body.permission ? `${text} (permiso)` : text);
   if (!body.trust) enEspera.add(activeId);
   // Contestar la pregunta de confianza no abre un turno de Claude: no hay respuesta que esperar.
@@ -886,6 +896,87 @@ $('attach-send').addEventListener('click', sendPhotoAlone);
 $('attach-remove').addEventListener('click', () => {
   sfx.click();
   clearPhoto();
+});
+
+// ---------- Audio compartido (atajo de iOS) ----------
+//
+// Un audio de WhatsApp compartido con el atajo "Walkie Code" llega ya transcripto y espera acá,
+// como una foto cargada: viaja con la próxima transmisión, donde se dicta qué hacer con él.
+// Si hay varios, va primero el último que llegó: es el que se acaba de compartir y del que se va a hablar.
+
+const compartidoEl = $('compartido');
+let compartidos = [];
+const compartidoActual = () => compartidos[compartidos.length - 1] || null;
+
+function renderCompartido() {
+  const actual = compartidoActual();
+  radio.dataset.compartido = actual ? 'on' : 'off';
+  compartidoEl.hidden = !actual;
+  if (actual) $('compartido-label').textContent = `${compartidos.length > 1 ? `(${compartidos.length}) ` : ''}«${actual.texto}»`;
+  renderHint();
+}
+
+function quitarCompartido(id) {
+  compartidos = compartidos.filter((c) => c.id !== id);
+  renderCompartido();
+}
+
+async function refreshCompartidos() {
+  try {
+    const res = await api('/api/compartidos');
+    if (!res.ok) return;
+    compartidos = (await res.json()).compartidos || [];
+    renderCompartido();
+  } catch {}
+}
+
+function onCompartido(e) {
+  rememberEvent(e);
+  const item = JSON.parse(e.data);
+  if (item.removed) return quitarCompartido(item.id);
+  if (compartidos.some((c) => c.id === item.id)) return;
+  compartidos.push(item);
+  renderCompartido();
+  if (item.replay) return;
+  if (!audioBusy()) sfx.notice();
+  log('AUDIO', `${item.texto} — MANTENÉ PARA DECIR QUÉ HAGO CON ÉL`, { muted: true });
+}
+
+// El audio solo, sin dictar nada: Claude lo recibe con un "te reenvío este audio".
+async function sendCompartidoSolo() {
+  const compartido = compartidoActual();
+  if (!compartido || ['arming', 'tx', 'processing'].includes(state)) return;
+  unlockAudio();
+  stopPlayback();
+  sfx.click();
+  setState('processing');
+  try {
+    await afterSend(await api('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ compartido: compartido.id }),
+    }), null);
+  } catch (err) {
+    fail(motivo(err));
+  }
+}
+
+// Tocar el texto lo muestra entero en la pantalla.
+$('compartido-label').addEventListener('click', () => {
+  const actual = compartidoActual();
+  if (actual) log('AUDIO', actual.texto, { muted: true });
+});
+$('compartido-send').addEventListener('click', sendCompartidoSolo);
+$('compartido-remove').addEventListener('click', async () => {
+  const actual = compartidoActual();
+  if (!actual) return;
+  sfx.click();
+  quitarCompartido(actual.id);
+  await api('/api/compartidos/borrar', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: actual.id }),
+  }).catch(() => {});
 });
 
 // Dijo "canal superprecio": el servidor ya sintonizó (o explica por qué no) y no le escribió a Claude.
@@ -2322,6 +2413,8 @@ function connect() {
   events.addEventListener('notify', onIncoming('PERMISO'));
   events.addEventListener('notice', onNotice);
   events.addEventListener('permission-done', onPermissionDone);
+  events.addEventListener('compartido', onCompartido);
+  refreshCompartidos();
 }
 
 // ---------- Avisos push (teléfono bloqueado) ----------

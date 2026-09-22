@@ -98,6 +98,13 @@ Otros comandos: `scripts/service.sh restart | status | logs | uninstall` y `node
 - La **cámara** (abajo a la derecha) saca una foto o elige **varias** de la galería (hasta 6). El teléfono las achica a 1600 px y las sube, y se mandan juntas con la próxima transmisión. **ENVIAR** las manda sin hablar y **✕** las quita.
 - En la terminal se escribe lo dictado más la ruta de la foto (`~/.walkie-code/uploads/…`), y Claude Code la abre desde ahí. La primera vez puede pedir permiso para leer esa carpeta; para que no pregunte, permití `Read(~/.walkie-code/uploads/**)` en tu configuración de Claude Code. Las fotos se borran a los 7 días.
 
+### Audios de WhatsApp
+
+- Un audio de WhatsApp (de un cliente, por ejemplo) se le puede pasar a Claude sin escucharlo ni copiarlo: en WhatsApp, **mantenelo apretado → Reenviar → Compartir → Walkie Code**. La Mac lo transcribe en segundos y queda cargado en el walkie con un 🎙, como una foto. Si la app no está a la vista, llega un aviso.
+- Después **mantené el PTT y decí qué hacer con él** ("anotalo como idea para el proyecto de talleres"): a Claude le llega lo que dictaste y la transcripción del audio, aclarando que puede tener errores. **ENVIAR** lo manda sin hablar, **✕** lo descarta y tocar el texto lo muestra entero. Si llegaron varios, se ve primero el último.
+- "Walkie Code" es un atajo de la app Atajos de iOS (Safari no deja que una web app aparezca en el menú de compartir). Se arma una sola vez: atajo nuevo → en sus ajustes, **Mostrar en la hoja de compartir**, que reciba **Archivos** y **Contenido multimedia** → acción **Obtener contenido de URL** con la dirección del walkie terminada en `/api/compartir`, método **POST**, encabezado `X-Walkie-Token` con tu token y cuerpo de solicitud **Archivo** con la *Entrada del atajo* → acción **Mostrar notificación** con el *Contenido de la URL* (dice "Listo, está en el walkie" y el principio del texto).
+- Subir el audio no pide Face ID (el atajo no puede), pero solo lo deja en la bandeja: mandarlo a Claude sí lo pide. Se guarda solo la transcripción, en `~/.walkie-code/compartidos.json`, y se borra al mandarla, al descartarla o a los 7 días.
+
 ### Tele (Chromecast)
 
 - La tecla de **transmisión** (abajo, la pantallita con ondas) abre el panel de la tele: elegir dispositivo, **PROYECTAR** la página más nueva del proyecto sintonizado (o **SACAR DE LA TELE**), un **trackpad** para mover un puntero y hacer clic en la página proyectada, y cuatro teclas para moverse por ella (principio, subir, bajar, final). En la tele no se puede tocar ni scrollear: por eso el control va desde el teléfono. La tecla de teclado escribe en el campo enfocado de la tele.

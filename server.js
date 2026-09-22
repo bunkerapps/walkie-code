@@ -39,7 +39,8 @@ import { isDictated } from './lib/voice-style.js';
 import { decideNotice, noticeSpeech, durationLabel, projectFromCwd, clampSeconds } from './lib/notices.js';
 import { saveImage, findImage, cleanupImages, promptWithImages, MAX_IMAGE_BYTES, DEFAULT_IMAGE_TEXT } from './lib/images.js';
 import { PendingStore } from './lib/pending.js';
-import { openPushStore, createPresence, pushTargets, pushMessage } from './lib/push.js';
+import { openPushStore, createPresence, pushTargets, pushMessage, shorten } from './lib/push.js';
+import { openCompartidos, validateAudio, promptConCompartido, MAX_AUDIO_BYTES } from './lib/compartidos.js';
 import { sendPush } from './lib/webpush.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -302,8 +303,7 @@ async function waitForWhisper() {
   throw new Error('whisper-server no arrancó');
 }
 
-async function transcribe(audio, mime) {
-  const ext = mime.includes('mp4') || mime.includes('m4a') ? 'm4a' : mime.includes('webm') ? 'webm' : 'wav';
+async function transcribe(audio, mime, ext = mime.includes('mp4') || mime.includes('m4a') ? 'm4a' : mime.includes('webm') ? 'webm' : 'wav') {
   const form = new FormData();
   form.append('file', new Blob([audio], { type: mime }), `audio.${ext}`);
   form.append('response_format', 'json');
@@ -535,10 +535,43 @@ async function handleImage(req, res) {
   return json(res, 201, { id });
 }
 
+// ---------- Audios compartidos (atajo de iOS) ----------
+
+const compartidos = openCompartidos(path.join(HOME_DIR, 'compartidos.json'));
+
+// El audio compartido que viaja con esta transmisión. Si ya se mandó o se descartó, se avisa.
+function compartidoPedido(id) {
+  if (!id) return null;
+  const item = compartidos.get(String(id));
+  if (!item) throw Object.assign(new Error('Ese audio ya no está en la bandeja.'), { status: 410 });
+  return item;
+}
+
+// Lo llama el atajo "Walkie Code" desde la hoja de compartir: el audio va crudo en el cuerpo.
+// Se transcribe ya y queda esperando en el walkie; si la app no está a la vista, llega un aviso.
+// La respuesta es texto plano: el atajo la muestra tal cual como notificación.
+async function handleCompartir(req, res) {
+  const audio = await readBody(req, MAX_AUDIO_BYTES, 'El audio es demasiado largo.');
+  const { ext, mime } = validateAudio(audio);
+  const texto = await transcribe(audio, mime, ext);
+  if (!texto) return json(res, 422, { error: 'No se entendió nada en ese audio.' });
+  const item = compartidos.add(texto);
+  log(`+ audio compartido (${Math.round(audio.length / 1024)} KB): ${texto.slice(0, 60)}`);
+  broadcast('compartido', item);
+  notifyPush(null, {
+    title: 'WALKIE · AUDIO COMPARTIDO',
+    body: shorten(`Mantené para decir qué hago con él. «${texto}»`),
+    tag: 'walkie-code-compartido',
+    url: '/',
+  });
+  res.writeHead(201, { ...SECURITY_HEADERS, 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(`Listo, está en el walkie: «${shorten(texto, 120)}»`);
+}
+
 // ---------- Hablarle a Claude ----------
 
 // Escribe en el canal activo. Con foto, la ruta va al final y nunca se toma como respuesta a un permiso.
-async function deliver(res, { found, text, images = [], clientId }) {
+async function deliver(res, { found, text, images = [], compartido = null, clientId }) {
   let { active } = found;
   if (!active) return json(res, 409, { error: channelsPayload(found).error, text });
 
@@ -555,15 +588,17 @@ async function deliver(res, { found, text, images = [], clientId }) {
   }
 
   // "Canal superprecio", "canal tres", "pasame a bunkerapps": se cambia de canal en vez de escribir.
-  const tuned = images.length ? null : await tuneByVoice(found, text);
+  const tuned = images.length || compartido ? null : await tuneByVoice(found, text);
   if (tuned) return json(res, 200, { text, ...tuned });
 
   // Si Claude está esperando un permiso, "sí" o "no" contestan el menú en vez de escribirse.
   const waiting = pending.get(active.tty);
   // También vale para un permiso avisado desde otro canal (`asking`). Con foto nunca es un permiso.
-  const answer = (waiting?.permission || asking.has(active.tty)) && !images.length ? permissionAnswer(text) : null;
+  const answer = (waiting?.permission || asking.has(active.tty)) && !images.length && !compartido ? permissionAnswer(text) : null;
   asking.delete(active.tty);
-  const prompt = images.length ? promptWithImages(text, images) : text;
+  // Con un audio compartido, lo dictado es el pedido y el audio va después (y las fotos, si hay, al final).
+  const base = compartido ? promptConCompartido(text, compartido) : text;
+  const prompt = images.length ? promptWithImages(base, images) : base;
 
   // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
   // y tiene que encontrar el texto dictado (con la ruta de la foto, tal cual lo recibe Claude).
@@ -586,10 +621,16 @@ async function deliver(res, { found, text, images = [], clientId }) {
   }
 
   log(`> ${active.project}: ${answer ? `[permiso${esConfianza ? ' de carpeta' : ''}: ${answer}]` : prompt}`);
+  // Ya está en la terminal: sale de la bandeja.
+  if (compartido) {
+    compartidos.remove(compartido.id);
+    broadcast('compartido', { id: compartido.id, removed: true });
+  }
   const trust = esConfianza
     ? { trust: answer, audio: await speak(answer === 'yes' ? `Listo. Claude está arrancando en ${active.project}.` : 'Dejé la carpeta sin confianza.') }
     : {};
-  return json(res, 200, { text: text || DEFAULT_IMAGE_TEXT, project: active.project, permission: answer, image: images.length, ...trust });
+  const shown = text || (compartido ? '' : DEFAULT_IMAGE_TEXT);
+  return json(res, 200, { text: shown, project: active.project, permission: answer, image: images.length, compartido: compartido?.id || null, ...trust });
 }
 
 // El teléfono mandó audio: se transcribe y se escribe en el canal activo.
@@ -597,6 +638,7 @@ async function deliver(res, { found, text, images = [], clientId }) {
 async function handleTalk(req, res) {
   const clientId = req.headers['x-walkie-client'] || null;
   const images = uploadedImages(req.headers['x-walkie-image']);
+  const compartido = compartidoPedido(req.headers['x-walkie-compartido']);
   // Cuánto estuvo apretado el botón: si el teclado se movió en ese rato, no fue el que hablaba.
   const duracion = Number(req.headers['x-walkie-tx-ms']);
   if (Number.isFinite(duracion) && duracion > 0) {
@@ -604,23 +646,24 @@ async function handleTalk(req, res) {
     ultimaTx = { inicio: fin - Math.min(duracion, 5 * 60_000), fin };
   }
   const audio = await readBody(req);
-  if (audio.length < 1000 && !images.length) return json(res, 422, { error: 'No llegó audio.' });
+  if (audio.length < 1000 && !images.length && !compartido) return json(res, 422, { error: 'No llegó audio.' });
 
   const [text, found] = await Promise.all([
     audio.length < 1000 ? '' : transcribe(audio, req.headers['content-type'] || 'audio/mp4'),
     resolveChannels(),
   ]);
-  if (!text && !images.length) return json(res, 422, { error: 'No se entendió nada.' });
-  return deliver(res, { found, text, images, clientId });
+  if (!text && !images.length && !compartido) return json(res, 422, { error: 'No se entendió nada.' });
+  return deliver(res, { found, text, images, compartido, clientId });
 }
 
 // "ENVIAR SOLA": la foto sin dictar nada, con el texto por defecto.
 async function handleSend(req, res) {
   const clientId = req.headers['x-walkie-client'] || null;
-  const { image: id, images: ids, text = '' } = await readJson(req);
+  const { image: id, images: ids, compartido: compartidoId, text = '' } = await readJson(req);
   const images = uploadedImages(Array.isArray(ids) ? ids.join(',') : ids || id);
-  if (!images.length) return json(res, 422, { error: 'No hay fotos para mandar.' });
-  return deliver(res, { found: await resolveChannels(), text: String(text), images, clientId });
+  const compartido = compartidoPedido(compartidoId);
+  if (!images.length && !compartido) return json(res, 422, { error: 'No hay nada para mandar.' });
+  return deliver(res, { found: await resolveChannels(), text: String(text), images, compartido, clientId });
 }
 
 // Si el texto es un cambio de canal, lo hace (o avisa por qué no) y devuelve la respuesta para el
@@ -1284,6 +1327,13 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
     if (route === 'POST /api/image') return await handleImage(req, res);
+    if (route === 'POST /api/compartir') return await handleCompartir(req, res);
+    if (route === 'GET /api/compartidos') return json(res, 200, { compartidos: compartidos.list() });
+    if (route === 'POST /api/compartidos/borrar') {
+      const { id } = await readJson(req);
+      if (compartidos.remove(String(id || ''))) broadcast('compartido', { id, removed: true });
+      return json(res, 200, { ok: true });
+    }
     if (route === 'POST /api/send') return await handleSend(req, res);
     if (route === 'GET /api/folders') return await handleFolders(res, url);
     if (route === 'GET /api/voices') return await handleVoices(res);

@@ -71,6 +71,12 @@ test('desde el teléfono, hablar pide la cara; desbloquear no', () => {
   assert.equal(necesitaCara({ route: 'GET /app.js', local: false }), false);
 });
 
+test('el atajo deja audios sin la cara, pero mandarlos o verlos la pide', () => {
+  assert.equal(necesitaCara({ route: 'POST /api/compartir', local: false }), false);
+  assert.equal(necesitaCara({ route: 'GET /api/compartidos', local: false }), true);
+  assert.equal(necesitaCara({ route: 'POST /api/compartidos/borrar', local: false }), true);
+});
+
 test('cambiar el token no es algo que cualquiera pueda tocar', () => {
   // Desde la Mac siempre; desde el teléfono, la ruta existe pero el servidor exige candado puesto.
   assert.equal(necesitaCara({ route: 'POST /api/token/rotar', local: true }), false);
