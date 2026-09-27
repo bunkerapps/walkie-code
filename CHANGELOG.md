@@ -8,9 +8,14 @@ All notable changes to Walkie-Code are documented here. The project follows [Sem
 
 ### Added
 
+- **Keyboard mode.** Tapping the speaker (VOZ) switches it to TECLADO: the PTT is replaced by a field to type to Claude, handy when transcription mangles proper names or you can't talk. Typed text travels with loaded photos or voice notes, switches channels and answers permissions just like dictation; the reply is still read aloud, without the transcription caveat. The mode is remembered on the phone. Voices are now picked from the gear.
 - **Video mode for the TV.** Pages and apps no longer run in the Chromecast's own browser, which is old and has no keyboard: they run in an invisible Chrome on the Mac and only the video reaches the TV (H.264, around 30 fps with a third of a second of delay). Clicks, scrolling and typing are real browser events, so dropdowns (drawn inside the page so they show up in the video), text fields and scrollable boxes all work. The page itself stays on the Mac: only the video goes out to the home network. Works with the Mac locked. The previous mode is still available with `castModo: "espejo"` in the config or `modo: "espejo"` when casting.
 - **WhatsApp voice notes.** A voice note shared from WhatsApp with the "Walkie Code" iOS shortcut is transcribed on the Mac and waits on the walkie with a 🎙, like a photo: hold PTT, say what to do with it and Claude gets both. With the app closed, a notification arrives. Uploading it doesn't need Face ID; sending it does.
 - **Keyboard for the TV.** The TV panel has a keyboard key: whatever you type (or dictate) on the phone shows up in the focused field on the TV, with keys to change field, move the cursor, delete, escape and enter.
+- **Trackpad gestures for the TV.** Like on the Mac: two fingers scroll whatever is under the pointer (the content follows the fingers, scrollable boxes included) and three fingers drag. One finger still moves the pointer and a tap clicks.
+- **Choose what to cast.** CAST no longer always sends the newest page: it opens a list with whatever was last on the TV (to resume it after an accidental stop), the dev servers running in the tuned project (Adonis, Vite, anything) and its pages. With a single option, it casts right away.
+- **Videos to the TV from the share sheet.** A tiny Python bridge (`scripts/tele`) runs on an always-on device, like an old Android phone, and hands the Chromecast any link shared from the iPhone with a shortcut: X lives and replays, YouTube, Twitch. The TV plays the stream itself, with sound, no Mac in between. A second shortcut sends gallery videos too, converted to H.264 on the iPhone.
+- **Back and forward on the TV.** The TV panel has the browser's two arrows: after following a link from the cast page, you go back (and forward) from the phone, in both modes.
 
 ### Fixed
 

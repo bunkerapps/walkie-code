@@ -69,8 +69,9 @@
       <div class="lcd-log" id="log"></div>
     </section>
 
-    <button type="button" class="grille" id="voice-open" aria-label="Elegir la voz de las respuestas">
-      <span class="grille-label">VOZ</span>
+    <!-- El parlante es el interruptor entre hablar y escribir: tocarlo pasa de VOZ a TECLADO y vuelve. -->
+    <button type="button" class="grille" id="modo" aria-label="Cambiar entre hablar y escribir">
+      <span class="grille-label" id="modo-label">VOZ</span>
     </button>
 
     <button class="ptt" id="ptt" type="button" aria-label="Mantener presionado para hablar">
@@ -86,6 +87,13 @@
         </span>
       </span>
     </button>
+
+    <!-- Modo teclado: ocupa el lugar del PTT. Lo escrito llega tal cual, sin pasar por la transcripción. -->
+    <form class="escribir" id="escribir" hidden>
+      <textarea id="escribir-campo" rows="4" enterkeyhint="send" autocapitalize="sentences" autocorrect="on" spellcheck="true"
+        placeholder="ESCRIBILE A CLAUDE…" aria-label="Mensaje para Claude"></textarea>
+      <button type="submit" class="escribir-enviar" id="escribir-enviar">ENVIAR</button>
+    </form>
 
     <nav class="keys">
       <!-- Abajo, en la zona del pulgar: lo que se usa seguido. La cámara a la derecha, como en las apps de mensajes. -->
@@ -214,8 +222,13 @@
         <button type="button" class="picker-btn" id="cast-device-next" aria-label="Elegir otro dispositivo">▸</button>
       </div>
       <button type="button" class="picker-open" id="cast-toggle">▶ PROYECTAR</button>
+      <ul class="picker-list cast-opciones" id="cast-opciones" hidden aria-label="Qué proyectar"></ul>
       <div class="pad" id="pad">
-        <span class="pad-hint">ARRASTRÁ PARA MOVER<br>TOCÁ PARA HACER CLIC<br>MANTENÉ Y ARRASTRÁ PARA LLEVAR</span>
+        <span class="pad-hint">UN DEDO MUEVE<br>TOCÁ PARA HACER CLIC<br>DOS DEDOS SCROLLEAN<br>TRES DEDOS LLEVAN</span>
+      </div>
+      <div class="control-nav">
+        <button type="button" class="picker-btn" id="nav-atras" aria-label="Página anterior">◂ ATRÁS</button>
+        <button type="button" class="picker-btn" id="nav-adelante" aria-label="Página siguiente">ADELANTE ▸</button>
       </div>
       <div class="control-scroll">
         <button type="button" class="picker-btn" id="scroll-top" aria-label="Ir al principio">⤒</button>

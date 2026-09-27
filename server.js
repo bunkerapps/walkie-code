@@ -12,7 +12,7 @@ import http from 'node:http';
 import { randomBytes, timingSafeEqual, randomUUID } from 'node:crypto';
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { readFile, mkdir, writeFile, rename } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, rename, realpath } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -23,7 +23,7 @@ import { recapOf, newestTranscript, readTail, isTranscriptPath } from './lib/tra
 import { resetTime, limitMessage, failureSpeech } from './lib/limits.js';
 import { reconectar, ordenar } from './lib/channels.js';
 import { describePermission, permissionSpeech, canAlways } from './lib/permissions.js';
-import { Preview, scanDevices, castSite, stopCast, newestPage, ordenTeclado, localAddress } from './lib/cast.js';
+import { Preview, scanDevices, castSite, stopCast, newestPage, paginas, servidoresVivos, ordenTeclado, ordenNavegar, localAddress } from './lib/cast.js';
 import { TeleVideo, videoDisponible } from './lib/stream.js';
 import { writeAndSubmit, pressKey, pressArrow, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
 import { pideConfianza, elegirOpcion } from './lib/trust.js';
@@ -376,6 +376,8 @@ const teleVideo = new TeleVideo({ port: cfg.castVideoPort, perfil: path.join(HOM
 // Para los mensajes: un archivo se nombra por su nombre y un servidor de desarrollo, por su dirección.
 const nombreDe = (file) => (/^https?:\/\//.test(file) ? file : path.basename(file));
 let casting = null; // { device, file, url, since }
+// Lo último que estuvo en la tele, para reanudarlo si se cortó sin querer. Sobrevive a un reinicio.
+let ultimoCast = cfg.ultimoCast || null; // { file, project, vigilar }
 
 async function handleCast(req, res) {
   const { path: wanted, url: servidor, watch: vigilar, project, device = cfg.castDevice, modo } = await readJson(req);
@@ -429,6 +431,8 @@ async function castFile(res, file, device, project, vigilar = null, modoPedido =
     await castSite(device, url);
   }
   casting = { device, file, url, modo, project: project || null, since: Date.now() };
+  ultimoCast = { file, project: project || null, vigilar: vigilar || null };
+  saveConfig({ ultimoCast });
   log(`+ tele: ${nombreDe(file)} en ${device}`);
   const que = project ? `${project} está en la tele` : `${nombreDe(file)} está en la tele`;
   return json(res, 200, { ...casting, audio: await speak(`Listo, ${que}.`) });
@@ -445,6 +449,66 @@ async function handleCastAuto(req, res) {
   const file = await newestPage(active.cwd);
   if (!file) return json(res, 404, { error: `No encontré una página en ${active.project}.` });
   return castFile(res, file, cfg.castDevice, active.project);
+}
+
+// ---------- Qué se puede proyectar ----------
+//
+// El panel de la tele muestra una lista corta para elegir: arriba lo último que estuvo en la tele,
+// después los servidores de desarrollo que están corriendo y al final las páginas del proyecto.
+// El teléfono elige por id: las rutas nunca viajan desde el teléfono.
+
+let opcionesTele = new Map(); // id -> { file, project, vigilar }
+
+const adentro = (dir, raiz) => Boolean(dir) && (dir === raiz || dir.startsWith(raiz + path.sep));
+
+async function handleCastOpciones(res) {
+  const { active } = await resolveChannels();
+  const raiz = await realpath(cfg.projectsRoot).catch(() => path.resolve(cfg.projectsRoot));
+  const cwd = active?.cwd ? await realpath(active.cwd).catch(() => path.resolve(active.cwd)) : null;
+  const enProyecto = Boolean(cwd) && cwd !== raiz;
+  const opciones = [];
+  const nuevas = new Map();
+  const agregar = (tipo, etiqueta, destino, detalle = '') => {
+    const clave = destino.file;
+    if ([...nuevas.values()].some((o) => o.file === clave)) return;
+    const id = String(nuevas.size + 1);
+    nuevas.set(id, destino);
+    opciones.push({ id, tipo, etiqueta, detalle });
+  };
+
+  if (ultimoCast && !casting && (/^https?:\/\//.test(ultimoCast.file) || existsSync(ultimoCast.file))) {
+    const nombre = ultimoCast.project || nombreDe(ultimoCast.file);
+    agregar('ultimo', `REANUDAR ${nombre}`, ultimoCast, ultimoCast.project ? nombreDe(ultimoCast.file) : '');
+  }
+
+  // Los servidores del proyecto sintonizado; desde la carpeta madre, los de todos los proyectos.
+  const servidores = await servidoresVivos({
+    ignorarPuertos: [cfg.port, cfg.whisperPort, cfg.castPort, cfg.castVideoPort],
+    ignorarPids: [process.pid],
+  });
+  for (const s of servidores) {
+    if (!adentro(s.cwd, enProyecto ? cwd : raiz)) continue;
+    const proyecto = enProyecto ? active.project : path.relative(raiz, s.cwd).split(path.sep)[0] || null;
+    // Si corre en una subcarpeta (un worktree, por ejemplo), se nombra por ella para distinguirlo.
+    const donde = s.cwd === (enProyecto ? cwd : path.join(raiz, proyecto || '')) ? proyecto : path.basename(s.cwd);
+    agregar('servidor', `localhost:${s.puerto}`, { file: `http://localhost:${s.puerto}/`, project: proyecto, vigilar: s.cwd }, [donde, s.comando].filter(Boolean).join(' · '));
+  }
+
+  if (enProyecto) {
+    for (const { file } of await paginas(cwd)) {
+      agregar('pagina', path.relative(cwd, file), { file, project: active.project, vigilar: null });
+    }
+  }
+
+  opcionesTele = nuevas;
+  return json(res, 200, { opciones, proyecto: enProyecto ? active.project : null });
+}
+
+async function handleCastElegir(req, res) {
+  const { id } = await readJson(req);
+  const destino = opcionesTele.get(String(id || ''));
+  if (!destino) return json(res, 404, { error: 'Esa opción ya no está: abrí la lista de nuevo.' });
+  return castFile(res, destino.file, cfg.castDevice, destino.project, destino.vigilar);
 }
 
 // Guarda el dispositivo preferido (se puede elegir otro de los que hay en la red).
@@ -582,7 +646,7 @@ async function handleCompartir(req, res) {
 // ---------- Hablarle a Claude ----------
 
 // Escribe en el canal activo. Con foto, la ruta va al final y nunca se toma como respuesta a un permiso.
-async function deliver(res, { found, text, images = [], compartido = null, clientId }) {
+async function deliver(res, { found, text, images = [], compartido = null, clientId, escrito = false }) {
   let { active } = found;
   if (!active) return json(res, 409, { error: channelsPayload(found).error, text });
 
@@ -613,7 +677,7 @@ async function deliver(res, { found, text, images = [], compartido = null, clien
 
   // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
   // y tiene que encontrar el texto dictado (con la ruta de la foto, tal cual lo recibe Claude).
-  const sent = answer ? null : { text: prompt, at: Date.now() };
+  const sent = answer ? null : { text: prompt, at: Date.now(), ...(escrito && { escrito }) };
   // La pregunta de confianza no abre ningún turno de Claude: contestarla no deja nada esperando.
   // (Si no, la pantalla quedaba en "Claude piensa" para siempre, porque nunca llegaba el hook Stop.)
   const esConfianza = Boolean(answer && waiting?.trust);
@@ -667,14 +731,15 @@ async function handleTalk(req, res) {
   return deliver(res, { found, text, images, compartido, clientId });
 }
 
-// "ENVIAR SOLA": la foto sin dictar nada, con el texto por defecto.
+// "ENVIAR SOLA": la foto sin dictar nada, con el texto por defecto. También lo escrito en el modo teclado.
 async function handleSend(req, res) {
   const clientId = req.headers['x-walkie-client'] || null;
   const { image: id, images: ids, compartido: compartidoId, text = '' } = await readJson(req);
   const images = uploadedImages(Array.isArray(ids) ? ids.join(',') : ids || id);
   const compartido = compartidoPedido(compartidoId);
-  if (!images.length && !compartido) return json(res, 422, { error: 'No hay nada para mandar.' });
-  return deliver(res, { found: await resolveChannels(), text: String(text), images, compartido, clientId });
+  const escrito = String(text).trim();
+  if (!images.length && !compartido && !escrito) return json(res, 422, { error: 'No hay nada para mandar.' });
+  return deliver(res, { found: await resolveChannels(), text: escrito, images, compartido, clientId, escrito: Boolean(escrito) });
 }
 
 // Si el texto es un cambio de canal, lo hace (o avisa por qué no) y devuelve la respuesta para el
@@ -716,6 +781,7 @@ async function handleHook(req, res) {
     asking.delete(body.tty);
     const waiting = pending.get(body.tty);
     const dictated = isDictated(waiting?.sent, body.prompt);
+    const escrito = Boolean(dictated && waiting.sent.escrito);
     if (dictated) {
       waiting.sent = null; // se usa una sola vez
       pending.save();
@@ -723,7 +789,7 @@ async function handleHook(req, res) {
       // Dónde está el usuario: sirve para que Claude sepa si mostrarle algo en pantalla tiene sentido.
       const presencia = await presenciaAhora().catch(() => null);
       if (presencia) log(`· ${waiting.project}: ${presencia.estado}`);
-      return json(res, 200, { dictated, presencia: presencia ? frasePresencia(presencia) : null });
+      return json(res, 200, { dictated, escrito, presencia: presencia ? frasePresencia(presencia) : null });
     }
     return json(res, 200, { dictated });
   }
@@ -1349,21 +1415,26 @@ const server = http.createServer(async (req, res) => {
     if (route === 'GET /api/cast/devices') return json(res, 200, { devices: await scanDevices(), preferido: cfg.castDevice });
     if (route === 'POST /api/cast') return await handleCast(req, res);
     if (route === 'POST /api/cast/auto') return await handleCastAuto(req, res);
+    if (route === 'GET /api/cast/opciones') return await handleCastOpciones(res);
+    if (route === 'POST /api/cast/elegir') return await handleCastElegir(req, res);
     if (route === 'POST /api/cast/device') return await handleCastDevice(req, res);
     if (route === 'POST /api/cast/stop') return await handleCastStop(res);
-    // Control remoto de la página que está en la tele: puntero, clics y scroll.
+    // Control remoto de la página que está en la tele: puntero, clics, scroll y atrás/adelante.
     if (route === 'POST /api/cast/control') {
       if (!casting) return json(res, 409, { error: 'No hay nada en la tele.' });
       const pedido = await readJson(req);
       const { tipo, dx = 0, dy = 0, accion } = pedido;
       const cuerpo = { tipo, dx: Number(dx) || 0, dy: Number(dy) || 0 };
       const teclado = ordenTeclado(pedido);
+      const navegar = ordenNavegar(pedido);
       // En modo video las órdenes van al Chrome invisible como eventos reales; en espejo, a la página.
       const destino = casting.modo === 'video' ? teleVideo : preview;
       if (teclado) await destino.comando(teclado);
+      else if (navegar) await destino.comando(navegar);
       else if (tipo === 'mover') await destino.comando(cuerpo);
       else if (['apretar', 'soltar'].includes(tipo)) await destino.comando({ tipo });
       else if (tipo === 'scroll' && ['up', 'down', 'top', 'bottom'].includes(accion)) await destino.comando({ tipo, accion });
+      else if (tipo === 'scroll' && (cuerpo.dx || cuerpo.dy)) await destino.comando(cuerpo); // dos dedos en el pad
       else return json(res, 400, { error: 'Orden inválida.' });
       return json(res, 200, { ok: true });
     }

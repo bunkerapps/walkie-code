@@ -117,10 +117,10 @@ async function main() {
   }
 
   if (isPrompt && cfg.voiceStyle !== false && res.ok) {
-    const { dictated, presencia } = await res.json();
+    const { dictated, escrito, presencia } = await res.json();
     if (dictated) {
       // Además del estilo hablado, se le cuenta a Claude si el usuario está frente a la Mac o lejos.
-      const contexto = [voiceContext(input.prompt, cfg.language), presencia].filter(Boolean).join(' ');
+      const contexto = [voiceContext(input.prompt, cfg.language, { escrito }), presencia].filter(Boolean).join(' ');
       // En macOS la escritura a un pipe es asíncrona: hay que esperarla antes del process.exit.
       await new Promise((r) => process.stdout.write(promptContextOutput(contexto), r));
     }

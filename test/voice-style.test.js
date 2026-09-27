@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { garbledTail, voiceContext, VOICE_STYLE, PROMPT_TTL_MS, isDictated, promptContextOutput } from '../lib/voice-style.js';
+import { garbledTail, voiceContext, VOICE_STYLE, TYPED_STYLE, PROMPT_TTL_MS, isDictated, promptContextOutput } from '../lib/voice-style.js';
 import { withWalkieHooks, EVENTS } from '../lib/hook-settings.js';
 
 const now = 1_000_000_000;
@@ -73,4 +73,11 @@ test('garbledTail no marca español normal, números ni signos', () => {
 test('voiceContext suma el aviso solo si hay una parte dudosa', () => {
   assert.equal(voiceContext('Subilo a GitHub', 'es'), VOICE_STYLE);
   assert.match(voiceContext('Sí, þá er það með.', 'es'), /«þá er það með\.»/);
+});
+
+test('voiceContext con texto escrito pide la forma hablada sin la duda de la transcripción', () => {
+  assert.equal(voiceContext('Sí, þá er það með.', 'es', { escrito: true }), TYPED_STYLE);
+  assert.match(TYPED_STYLE, /teclado del teléfono/);
+  assert.doesNotMatch(TYPED_STYLE, /transcripción/);
+  assert.match(VOICE_STYLE, /transcripción automática/);
 });

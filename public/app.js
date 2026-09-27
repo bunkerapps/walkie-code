@@ -1025,7 +1025,7 @@ for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 ptt.addEventListener('contextmenu', (e) => e.preventDefault());
 
 addEventListener('keydown', (e) => {
-  if (e.target instanceof HTMLInputElement) return;
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
   if (e.code === 'Space' && !e.repeat) {
     e.preventDefault();
     startTx();
@@ -1034,6 +1034,74 @@ addEventListener('keydown', (e) => {
   if (e.code === 'ArrowLeft') switchChannel(-1);
 });
 addEventListener('keyup', (e) => e.code === 'Space' && endTx());
+
+// ---------- Modo teclado ----------
+
+// El parlante (VOZ / TECLADO) cambia entre dictar y escribir. Escribir sirve cuando la transcripción
+// se equivoca con nombres propios o no se puede hablar. El modo queda guardado en el teléfono.
+const MODO_KEY = 'walkie-modo';
+const escribirCampo = $('escribir-campo');
+let modoTeclado = false;
+try {
+  modoTeclado = localStorage.getItem(MODO_KEY) === 'teclado';
+} catch {}
+
+function renderModo() {
+  radio.dataset.modo = modoTeclado ? 'teclado' : 'voz';
+  $('modo-label').textContent = modoTeclado ? 'TECLADO' : 'VOZ';
+  ptt.hidden = modoTeclado;
+  $('escribir').hidden = !modoTeclado;
+}
+renderModo();
+
+$('modo').addEventListener('click', () => {
+  if (['arming', 'tx'].includes(state)) return;
+  sfx.click();
+  modoTeclado = !modoTeclado;
+  try {
+    localStorage.setItem(MODO_KEY, modoTeclado ? 'teclado' : 'voz');
+  } catch {}
+  renderModo();
+  if (modoTeclado) escribirCampo.focus();
+  else escribirCampo.blur();
+});
+
+// Lo escrito viaja con las fotos y el audio compartido cargados, igual que lo dictado.
+async function sendEscrito() {
+  const text = escribirCampo.value.trim();
+  const compartido = compartidoActual();
+  if ((!text && !photos.length && !compartido) || ['arming', 'tx', 'processing'].includes(state)) return;
+  unlockAudio();
+  stopPlayback();
+  sfx.click();
+  setState('processing');
+  const sent = photos;
+  const images = sent.length ? (await Promise.all(sent.map((p) => p.ready.catch(() => null)))).filter(Boolean) : [];
+  if (sent.length && images.length !== sent.length) return fail('ALGUNA FOTO NO SE SUBIÓ. NO SE ENVIÓ NADA');
+  try {
+    const res = await api('/api/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, images, ...(compartido && { compartido: compartido.id }) }),
+    });
+    // Si no llegó, lo escrito queda en el campo para reintentar.
+    if (res.ok) escribirCampo.value = '';
+    await afterSend(res, sent);
+  } catch (err) {
+    fail(motivo(err, 'AL MANDAR LO QUE ESCRIBISTE'));
+  }
+}
+
+$('escribir').addEventListener('submit', (e) => {
+  e.preventDefault();
+  sendEscrito();
+});
+// En el teléfono, la tecla de enviar del teclado manda; Mayús+Enter (teclado físico) hace un salto de línea.
+escribirCampo.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+  e.preventDefault();
+  sendEscrito();
+});
 
 $('replay').addEventListener('click', async () => {
   unlockAudio();
@@ -1802,43 +1870,133 @@ $('reader-close').addEventListener('click', () => ($('reader').hidden = true));
 
 // ---------- Tele ----------
 //
-// Un botón: proyecta la página más nueva del proyecto sintonizado y la deja recargándose sola en la tele.
-// Volver a tocarlo la saca. Al lado, el dispositivo elegido, que se puede cambiar entre los de la red.
+// PROYECTAR abre una lista corta: arriba lo último que estuvo en la tele (para reanudarlo si se cortó
+// sin querer), después los servidores de desarrollo que están corriendo y al final las páginas del
+// proyecto sintonizado. Si hay una sola opción, va directo. Con algo en la tele, el botón lo saca.
+// Al lado, el dispositivo elegido, que se puede cambiar entre los de la red.
 
 let castState = { casting: null, device: null };
 let castDevices = [];
+let eligiendo = false;
+
+const SECCION_TELE = { ultimo: '— LO ÚLTIMO —', servidor: '— SERVIDORES —', pagina: '— PÁGINAS —' };
 
 function renderCast() {
   const on = Boolean(castState.casting);
-  $('cast-toggle').textContent = on ? '■ SACAR DE LA TELE' : '▶ PROYECTAR';
+  $('cast-toggle').textContent = on ? '■ SACAR DE LA TELE' : eligiendo ? '✕ CANCELAR' : '▶ PROYECTAR';
   $('cast-toggle').setAttribute('aria-pressed', String(on));
   $('cast-device').textContent = (castState.casting?.device || castState.device || '').toUpperCase() || 'SIN DISPOSITIVO';
+  $('cast-opciones').hidden = !eligiendo;
+  $('control').classList.toggle('eligiendo', eligiendo);
+}
+
+function cerrarOpciones() {
+  eligiendo = false;
+  renderCast();
 }
 
 async function refreshCast() {
   try {
     castState = await (await api('/api/cast')).json();
+    if (castState.casting) eligiendo = false;
     renderCast();
   } catch {}
+}
+
+// Respuesta de proyectar o sacar: avisa, anota y refresca el panel.
+async function resultadoCast(res) {
+  const body = await res.json();
+  if (!res.ok) {
+    await refreshCast();
+    return fail((body.error || 'NO SE PUDO').toUpperCase());
+  }
+  if (body.audio) play(body.audio, { squelch: false, rx: false });
+  if (body.file) log('TELE', `${body.project || ''} ${body.file.split('/').pop()}`.trim(), { muted: true });
+  await refreshCast();
+}
+
+function opcionTele(opcion) {
+  const li = document.createElement('li');
+  const button = document.createElement('button');
+  button.type = 'button';
+  const name = document.createElement('span');
+  name.className = 'name';
+  name.textContent = opcion.etiqueta.toUpperCase();
+  button.append(name);
+  if (opcion.detalle) {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = opcion.detalle.toUpperCase();
+    button.append(tag);
+  }
+  button.addEventListener('click', () => elegirCast(opcion.id));
+  li.append(button);
+  return li;
+}
+
+async function elegirCast(id) {
+  unlockAudio();
+  sfx.click();
+  eligiendo = false;
+  renderCast();
+  $('cast-toggle').textContent = 'MANDANDO A LA TELE…';
+  try {
+    await resultadoCast(
+      await api('/api/cast/elegir', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      }),
+    );
+  } catch (err) {
+    fail(motivo(err));
+    renderCast();
+  }
 }
 
 async function toggleCast() {
   unlockAudio();
   sfx.click();
-  const era = Boolean(castState.casting);
-  $('cast-toggle').textContent = era ? 'SACANDO…' : 'BUSCANDO LA PÁGINA…';
+  if (eligiendo) return cerrarOpciones();
+  if (castState.casting) {
+    $('cast-toggle').textContent = 'SACANDO…';
+    try {
+      await resultadoCast(await api('/api/cast/stop', { method: 'POST' }));
+    } catch (err) {
+      fail(motivo(err));
+    }
+    return;
+  }
+  $('cast-toggle').textContent = 'BUSCANDO QUÉ PROYECTAR…';
   try {
-    const res = await api(era ? '/api/cast/stop' : '/api/cast/auto', { method: 'POST' });
+    const res = await api('/api/cast/opciones');
     const body = await res.json();
     if (!res.ok) {
-      await refreshCast();
+      renderCast();
       return fail((body.error || 'NO SE PUDO').toUpperCase());
     }
-    if (body.audio) play(body.audio, { squelch: false, rx: false });
-    if (body.file) log('TELE', `${body.project || ''} ${body.file.split('/').pop()}`.trim(), { muted: true });
-    await refreshCast();
+    const { opciones = [] } = body;
+    if (!opciones.length) {
+      renderCast();
+      return fail(body.proyecto ? `NO HAY NADA PARA PROYECTAR EN ${body.proyecto.toUpperCase()}` : 'SINTONIZÁ EL CANAL DEL PROYECTO');
+    }
+    if (opciones.length === 1) return elegirCast(opciones[0].id);
+    const items = [];
+    let seccion = null;
+    for (const opcion of opciones) {
+      if (opcion.tipo !== seccion) {
+        seccion = opcion.tipo;
+        items.push(listItem('section', SECCION_TELE[seccion] || ''));
+      }
+      items.push(opcionTele(opcion));
+    }
+    $('cast-opciones').replaceChildren(...items);
+    $('cast-opciones').scrollTop = 0;
+    eligiendo = true;
+    renderCast();
   } catch (err) {
     fail(motivo(err));
+    renderCast();
   }
 }
 
@@ -1865,12 +2023,15 @@ async function nextCastDevice() {
 
 // ---------- Control de la tele ----------
 //
-// En la tele no se puede scrollear ni tocar: el walkie hace de trackpad. Arrastrar mueve un puntero
-// dibujado en la página, un toque hace clic, y mantener apretado permite arrastrar (por ejemplo, el
-// comparador de fotos). Abajo, cuatro teclas para moverse por la página.
+// En la tele no se puede scrollear ni tocar: el walkie hace de trackpad, como el de la Mac. Un dedo
+// mueve un puntero dibujado en la página y un toque hace clic; dos dedos scrollean lo que está bajo
+// el puntero (el contenido sigue a los dedos); tres dedos, o mantener apretado, arrastran (por ejemplo,
+// el comparador de fotos). Abajo, las flechas del navegador (atrás y adelante) y cuatro teclas para
+// moverse por la página.
 
 const PAD_SENSIBILIDAD = 2.2;
-let padPresionado = null;
+const dedos = new Map(); // pointerId -> última posición
+let gesto = null; // qué se está haciendo con los dedos que están apoyados
 
 function controlTele(orden) {
   return api('/api/cast/control', {
@@ -1887,7 +2048,16 @@ function openControl() {
   refreshCast();
 }
 
-$('control-close').addEventListener('click', () => ($('control').hidden = true));
+$('control-close').addEventListener('click', () => {
+  $('control').hidden = true;
+  cerrarOpciones();
+});
+for (const [id, accion] of [['nav-atras', 'atras'], ['nav-adelante', 'adelante']]) {
+  $(id).addEventListener('click', () => {
+    sfx.click();
+    controlTele({ tipo: 'navegar', accion });
+  });
+}
 for (const [id, accion] of [['scroll-top', 'top'], ['scroll-up', 'up'], ['scroll-down', 'down'], ['scroll-bottom', 'bottom']]) {
   $(id).addEventListener('click', () => {
     sfx.click();
@@ -1897,40 +2067,71 @@ for (const [id, accion] of [['scroll-top', 'top'], ['scroll-up', 'up'], ['scroll
 
 const pad = $('pad');
 
+// Un dedo que se apoya o se levanta cambia el gesto: lo que se estaba haciendo termina prolijo
+// (se suelta lo agarrado) y el gesto nuevo arranca de cero, sin clics ni saltos de más.
+function cambiarGesto(tipo) {
+  if (gesto) {
+    clearTimeout(gesto.timer);
+    if (gesto.arrastrando) controlTele({ tipo: 'soltar' });
+  }
+  gesto = { tipo, desde: Date.now(), movido: 0, arrastrando: false, timer: null };
+  pad.classList.toggle('apretado', tipo === 'arrastre');
+  if (tipo === 'arrastre') {
+    gesto.arrastrando = true;
+    controlTele({ tipo: 'apretar' });
+  } else if (tipo === 'puntero') {
+    // Mantener apretado sin mover = agarrar (para arrastrar el comparador o un control de la página).
+    gesto.timer = setTimeout(() => {
+      if (!gesto || gesto.tipo !== 'puntero' || gesto.movido > 10) return;
+      gesto.arrastrando = true;
+      pad.classList.add('apretado');
+      controlTele({ tipo: 'apretar' });
+    }, 450);
+  }
+}
+
 pad.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   pad.setPointerCapture(e.pointerId);
-  pad.classList.add('apretado');
-  padPresionado = { x: e.clientX, y: e.clientY, desde: Date.now(), movido: 0, arrastrando: false };
-  // Mantener apretado sin mover = agarrar (para arrastrar el comparador o un control de la página).
-  padPresionado.timer = setTimeout(() => {
-    if (!padPresionado || padPresionado.movido > 10) return;
-    padPresionado.arrastrando = true;
-    controlTele({ tipo: 'apretar' });
-  }, 450);
+  dedos.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  cambiarGesto(dedos.size === 1 ? 'puntero' : dedos.size === 2 ? 'scroll' : 'arrastre');
 });
 
 pad.addEventListener('pointermove', (e) => {
-  if (!padPresionado) return;
-  const dx = e.clientX - padPresionado.x;
-  const dy = e.clientY - padPresionado.y;
+  const dedo = dedos.get(e.pointerId);
+  if (!dedo || !gesto) return;
+  const dx = e.clientX - dedo.x;
+  const dy = e.clientY - dedo.y;
   if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
-  padPresionado.x = e.clientX;
-  padPresionado.y = e.clientY;
-  padPresionado.movido += Math.abs(dx) + Math.abs(dy);
-  controlTele({ tipo: 'mover', dx: Math.round(dx * PAD_SENSIBILIDAD), dy: Math.round(dy * PAD_SENSIBILIDAD) });
+  dedo.x = e.clientX;
+  dedo.y = e.clientY;
+  gesto.movido += Math.abs(dx) + Math.abs(dy);
+  if (gesto.tipo === 'muerto') return;
+  // Cada dedo avisa su propio movimiento: se reparte entre todos para que valga el promedio.
+  const escala = PAD_SENSIBILIDAD / dedos.size;
+  if (gesto.tipo === 'scroll') {
+    // Como en la Mac: el contenido sigue a los dedos.
+    controlTele({ tipo: 'scroll', dx: Math.round(-dx * escala), dy: Math.round(-dy * escala) });
+  } else {
+    controlTele({ tipo: 'mover', dx: Math.round(dx * escala), dy: Math.round(dy * escala) });
+  }
 });
 
 for (const tipo of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-  pad.addEventListener(tipo, async () => {
-    if (!padPresionado) return;
-    const { desde, movido, arrastrando, timer } = padPresionado;
-    padPresionado = null;
+  pad.addEventListener(tipo, async (e) => {
+    if (!dedos.delete(e.pointerId) || !gesto) return;
+    if (dedos.size > 0) {
+      // Se levantó un dedo pero quedan otros: lo que sigue no vale hasta soltar todos.
+      cambiarGesto('muerto');
+      return;
+    }
+    const { tipo: gestoTipo, desde, movido, arrastrando, timer } = gesto;
+    gesto = null;
     clearTimeout(timer);
     pad.classList.remove('apretado');
     if (arrastrando) return controlTele({ tipo: 'soltar' });
-    // Toque corto y quieto = clic.
-    if (movido < 12 && Date.now() - desde < 400) {
+    // Toque corto y quieto con un dedo = clic.
+    if (gestoTipo === 'puntero' && movido < 12 && Date.now() - desde < 400) {
       await controlTele({ tipo: 'apretar' });
       controlTele({ tipo: 'soltar' });
     }
@@ -2303,7 +2504,6 @@ $('fx-toggle').addEventListener('click', () => {
   if (open) renderFx();
 });
 
-$('voice-open').addEventListener('click', openVoices);
 $('settings-key').addEventListener('click', openVoices);
 $('voices-close').addEventListener('click', () => {
   voicesPanel.hidden = true;

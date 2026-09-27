@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { withLiveReload, resolveRequest, LIVE_SCRIPT, ordenTeclado, TEXTO_TELE_MAX } from '../lib/cast.js';
+import { mkdtemp, mkdir, writeFile, utimes } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { withLiveReload, resolveRequest, LIVE_SCRIPT, ordenTeclado, ordenNavegar, TEXTO_TELE_MAX, parseEscuchando, paginas, newestPage } from '../lib/cast.js';
 
 test('agrega el script de recarga antes de cerrar el body', () => {
   const out = withLiveReload('<html><body><h1>Hola</h1></body></html>');
@@ -47,6 +49,24 @@ test('el teclado solo deja pasar texto corto y teclas conocidas', () => {
   assert.equal(ordenTeclado(), null);
 });
 
+test('atrás y adelante: solo esas dos acciones, y la página las traduce al historial', () => {
+  assert.deepEqual(ordenNavegar({ tipo: 'navegar', accion: 'atras', extra: 1 }), { tipo: 'navegar', accion: 'atras' });
+  assert.deepEqual(ordenNavegar({ tipo: 'navegar', accion: 'adelante' }), { tipo: 'navegar', accion: 'adelante' });
+  assert.equal(ordenNavegar({ tipo: 'navegar', accion: 'recargar' }), null);
+  assert.equal(ordenNavegar({ tipo: 'scroll', accion: 'atras' }), null);
+  assert.equal(ordenNavegar(), null);
+  assert.match(LIVE_SCRIPT, /history\.back\(\)/);
+  assert.match(LIVE_SCRIPT, /history\.forward\(\)/);
+});
+
+test('modo video: atrás y adelante eligen la entrada del historial sin salirse', async () => {
+  const { entradaDeHistorial } = await import('../lib/stream.js');
+  assert.equal(entradaDeHistorial(2, 4, 'atras'), 1);
+  assert.equal(entradaDeHistorial(2, 4, 'adelante'), 3);
+  assert.equal(entradaDeHistorial(0, 4, 'atras'), -1);
+  assert.equal(entradaDeHistorial(3, 4, 'adelante'), -1);
+});
+
 test('los scripts del modo video son JavaScript válido', async () => {
   const { VISOR, EN_LA_PAGINA } = await import('../lib/stream.js');
   const visor = VISOR.slice(VISOR.indexOf('<script>') + 8, VISOR.lastIndexOf('</script>'));
@@ -71,6 +91,14 @@ test('modo video: teclas, puntero y scroll se traducen a eventos de Chrome', asy
   assert.ok(ruedaDeScroll('bottom') > ruedaDeScroll('down'));
 });
 
+test('scroll con dos dedos: la distancia llega tal cual, las teclas siguen mandando su acción', async () => {
+  const { rueda, ruedaDeScroll } = await import('../lib/stream.js');
+  assert.deepEqual(rueda({ dx: -3, dy: 40 }), { deltaX: -3, deltaY: 40 });
+  assert.deepEqual(rueda({ accion: 'down', dy: 40 }), { deltaX: 0, deltaY: ruedaDeScroll('down') });
+  assert.deepEqual(rueda({}), { deltaX: 0, deltaY: 0 });
+  assert.match(LIVE_SCRIPT, /caja\.scrollBy\(c\.dx/, 'en espejo se scrollea la caja bajo el puntero');
+});
+
 test('en modo video solo se inyecta la recarga, no un segundo puntero', () => {
   const html = '<html><body>hola</body></html>';
   const conControl = withLiveReload(html);
@@ -78,4 +106,28 @@ test('en modo video solo se inyecta la recarga, no un segundo puntero', () => {
   assert.match(conControl, /data-walkie-cursor/, 'el modo directo dibuja el puntero');
   assert.doesNotMatch(soloRecarga, /data-walkie-cursor/, 'el modo video no dibuja ninguno');
   assert.match(soloRecarga, /__walkie-live/, 'pero sigue recargando sola');
+});
+
+test('lee los servidores que escuchan, un renglón por puerto y sin repetir', () => {
+  const salida = ['p501', 'cnode', 'f22', 'n*:3333', 'f23', 'n[::1]:3333', 'p777', 'cruby', 'f9', 'n127.0.0.1:5173', ''].join('\n');
+  assert.deepEqual(parseEscuchando(salida), [
+    { pid: 501, comando: 'node', puerto: 3333 },
+    { pid: 777, comando: 'ruby', puerto: 5173 },
+  ]);
+  assert.deepEqual(parseEscuchando(''), []);
+});
+
+test('lista las páginas de la más nueva a la más vieja, sin node_modules', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'tele-'));
+  await mkdir(path.join(dir, 'docs'));
+  await mkdir(path.join(dir, 'node_modules'));
+  const vieja = path.join(dir, 'index.html');
+  const nueva = path.join(dir, 'docs', 'informe.html');
+  await writeFile(vieja, '<h1>vieja</h1>');
+  await writeFile(nueva, '<h1>nueva</h1>');
+  await writeFile(path.join(dir, 'node_modules', 'x.html'), '');
+  await utimes(vieja, new Date(1000), new Date(1000));
+  const lista = await paginas(dir);
+  assert.deepEqual(lista.map((p) => p.file), [nueva, vieja]);
+  assert.equal(await newestPage(dir), nueva);
 });
