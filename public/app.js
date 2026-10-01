@@ -749,7 +749,11 @@ async function afterSend(res, sent) {
   if (res.status === 410) refreshCompartidos();
   if (!res.ok) {
     if (body.text) log('VOS', body.text, { muted: true });
-    return fail((body.error || `ERROR ${res.status}`).toUpperCase());
+    fail((body.error || `ERROR ${res.status}`).toUpperCase());
+    // No se escribió porque Claude pregunta por la confianza de la carpeta: vuelve el panel.
+    if (body.permission) showPermission(body);
+    if (body.audio) play(body.audio, { squelch: false, rx: false });
+    return;
   }
   if ('switched' in body) return tunedByVoice(body);
   if (body.image && photos === sent) clearPhoto();

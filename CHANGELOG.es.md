@@ -19,6 +19,7 @@ Acá queda anotado todo lo que va cambiando en Walkie-Code. El proyecto usa [ver
 
 ### Arreglado
 
+- Dictar algo mientras Claude Code preguntaba si confiar en una carpeta nueva lo cerraba: el Enter elegía "No, exit". Ahora el walkie no escribe nada y vuelve a mostrar los botones de confianza. Además, al abrir una carpeta se espera unos segundos a que aparezca la pregunta, en lugar de mirar una sola vez.
 - Si la tele seguía mostrando otra cosa, proyectar fallaba o la página nueva no aparecía: ahora siempre se corta lo anterior antes de proyectar.
 - En modo espejo, un clic desde el walkie no enfocaba los campos de la página.
 - Los `confirm` de una página proyectada se cancelan en vez de colgarla, y se avisa en pantalla.

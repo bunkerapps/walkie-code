@@ -19,6 +19,7 @@ All notable changes to Walkie-Code are documented here. The project follows [Sem
 
 ### Fixed
 
+- Dictating while Claude Code was asking whether to trust a new folder closed it: the Enter picked "No, exit". Walkie now types nothing and shows the trust buttons again. Opening a folder also waits a few seconds for the question to appear instead of checking once.
 - Casting failed, or the new page never showed up, if the TV was still showing something else: it now always stops the previous cast first.
 - In mirror mode, a click from the walkie didn't focus the page's fields.
 - `confirm` dialogs on a cast page are cancelled instead of freezing it, with a notice on screen.

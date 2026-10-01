@@ -26,7 +26,7 @@ import { describePermission, permissionSpeech, canAlways } from './lib/permissio
 import { Preview, scanDevices, castSite, stopCast, newestPage, paginas, servidoresVivos, ordenTeclado, ordenNavegar, localAddress } from './lib/cast.js';
 import { TeleVideo, videoDisponible } from './lib/stream.js';
 import { writeAndSubmit, pressKey, pressArrow, closeChannel, listChannels, highlight, unhighlight, openClaude, sessionContents } from './lib/iterm.js';
-import { pideConfianza, elegirOpcion } from './lib/trust.js';
+import { pideConfianza, claudeListo, elegirOpcion } from './lib/trust.js';
 import { leerPresencia, frasePresencia, despertaronLaMac, tecladoMientrasHablaba } from './lib/presencia.js';
 import { Cerrojo, necesitaCara } from './lib/lock.js';
 import { nuevoDesafio, verificarRegistro, verificarDesbloqueo } from './lib/webauthn.js';
@@ -675,6 +675,22 @@ async function deliver(res, { found, text, images = [], compartido = null, clien
   const base = compartido ? promptConCompartido(text, compartido) : text;
   const prompt = images.length ? promptWithImages(base, images) : base;
 
+  // Si la terminal todavía muestra la pregunta de confianza, escribir ahí es peligroso: el Enter elige
+  // "No, exit" (la opción marcada) y Claude Code se cierra. Se frena y se vuelve a mostrar el panel.
+  if (!answer) {
+    const pantalla = await sessionContents(active.id).catch(() => '');
+    if (pideConfianza(pantalla)) {
+      pending.set(active.tty, { project: active.project, clientId, permission: true, trust: true });
+      log(`! ${active.project}: no escribí, Claude pregunta por la confianza de la carpeta`);
+      return json(res, 409, {
+        error: 'Claude pregunta si confiás en esta carpeta: contestá sí o no.',
+        text,
+        permission: panelConfianza(active),
+        audio: await speak('Todavía no escribí nada: Claude pregunta si confiás en esta carpeta. Decime sí o no.'),
+      });
+    }
+  }
+
   // Se anota antes de escribir: el hook UserPromptSubmit salta apenas llega el Enter
   // y tiene que encontrar el texto dictado (con la ruta de la foto, tal cual lo recibe Claude).
   const sent = answer ? null : { text: prompt, at: Date.now(), ...(escrito && { escrito }) };
@@ -925,6 +941,16 @@ async function responderConfianza(sessionId, decision) {
   await pressKey(sessionId, 'enter');
 }
 
+// El panel de botones para la pregunta de confianza (el mismo que usan los permisos).
+const panelConfianza = (target, detail) => ({
+  id: `${TRUST_PREFIX}${target.id}`,
+  project: target.project,
+  summary: '¿Confiás en los archivos de esta carpeta?',
+  detail: detail || target.cwd || target.project,
+  always: false,
+  labels: { allow: 'CONFIAR', deny: 'NO ABRIR' },
+});
+
 async function answerTrust(res, sessionId, decision) {
   const { channels } = await channelsNow().catch(() => ({ channels: [] }));
   const target = channels.find((c) => c.id === sessionId);
@@ -1108,21 +1134,17 @@ async function openClaudeIn(req, res, full, intro) {
 
   // En una carpeta nueva, Claude Code primero pregunta si se confía en ella. Se contesta con el mismo
   // panel que los permisos (botones en pantalla), no solo por voz.
-  await sleep(1500);
-  const screen = await sessionContents(target.id).catch(() => '');
-  const asksTrust = pideConfianza(screen);
+  // La pregunta puede tardar en dibujarse: se mira varias veces hasta que aparece o Claude ya está listo.
+  let asksTrust = false;
+  for (let i = 0; i < 10 && !asksTrust; i++) {
+    await sleep(500);
+    const screen = await sessionContents(target.id).catch(() => '');
+    asksTrust = pideConfianza(screen);
+    if (!asksTrust && i >= 2 && claudeListo(screen)) break;
+  }
   if (asksTrust) pending.set(target.tty, { project: target.project, clientId, permission: true, trust: true });
 
-  const permission = asksTrust
-    ? {
-        id: `${TRUST_PREFIX}${target.id}`,
-        project: target.project,
-        summary: '¿Confiás en los archivos de esta carpeta?',
-        detail: full,
-        always: false,
-        labels: { allow: 'CONFIAR', deny: 'NO ABRIR' },
-      }
-    : null;
+  const permission = asksTrust ? panelConfianza(target, full) : null;
   const speech = `${intro || `Canal ${index + 1}. ${target.project}.`} ` +
     (asksTrust ? 'Claude pregunta si confiás en esta carpeta: está en pantalla.' : 'Claude está listo.');
   return json(res, 200, { ...channelsPayload({ ...found, active: target }), trust: asksTrust, permission, audio: await speak(speech) });

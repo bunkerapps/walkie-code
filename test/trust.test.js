@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { elegirOpcion, pideConfianza } from '../lib/trust.js';
+import { claudeListo, elegirOpcion, pideConfianza } from '../lib/trust.js';
 
 // La pantalla tal cual la muestra Claude Code al entrar por primera vez en una carpeta.
 const PANTALLA = `
@@ -35,4 +35,9 @@ test('si el orden de las opciones cambia, se mueve al revés', () => {
 
 test('sin menú a la vista no manda flechas', () => {
   assert.deepEqual(elegirOpcion('otra cosa', 'allow'), { dir: null, veces: 0 });
+});
+
+test('claudeListo reconoce la caja de entrada pero no la pregunta de confianza', () => {
+  assert.equal(claudeListo('> \n  ? for shortcuts'), true);
+  assert.equal(claudeListo('Quick safety check\n❯ No, exit\n  Yes, I trust this folder'), false);
 });
